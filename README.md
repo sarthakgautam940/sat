@@ -13,7 +13,7 @@ npm run dev
 
 ## Deploy
 
-It is a static site (`output: "export"`). On Vercel, import this repository as a new project; the defaults do the rest. Any static host works too: `npm run build`, then serve `out/`.
+It is a static site (`output: "export"`, written to `out/`). On Vercel, import this repository as a new project; `vercel.json` sets the build command and the output directory, so the framework preset doesn't matter. Any static host works too: `npm run build`, then serve `out/`.
 
 Progress is stored in the browser (localStorage). Settings has Export and Import so it can be backed up or moved to another device.
 
