@@ -62,6 +62,15 @@ export function DesmosPanel({ visible }: { visible: boolean }) {
     if (visible) calc.current?.resize();
   }, [visible]);
 
+  // keep the graph filling the panel while it is dragged wider or narrower
+  useEffect(() => {
+    const el = host.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => calc.current?.resize());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   useEffect(() => () => calc.current?.destroy(), []);
 
   return (

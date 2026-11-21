@@ -13,10 +13,17 @@ import { createEngine, nextQuestion, recordAnswer, remaining, TARGET, type Engin
 import { loadQuestion, type QData } from "@/lib/data";
 import { needFor, recordAttempt, toggleBookmark, type Mode } from "@/lib/progress";
 import { modeOf, poolFor, scopeFromParams } from "@/lib/scope";
-import { getState, qs, update, useHydrated, useStore, type Scope } from "@/lib/store";
+import { DEFAULT_SETTINGS, getState, qs, update, useHydrated, useStore, type Scope } from "@/lib/store";
 import { useNow } from "@/lib/useNow";
 import { clock } from "@/lib/dates";
 import { planToday } from "@/lib/plan";
+
+/** The calculator can take from a quarter of the window up to 70 percent of it. */
+const CALC_MIN = 0.25;
+const CALC_MAX = 0.7;
+function clampCalc(f: number) {
+  return Math.min(CALC_MAX, Math.max(CALC_MIN, Number.isFinite(f) ? f : DEFAULT_SETTINGS.calcWidth));
+}
 
 type Phase = "loading" | "answer" | "feedback" | "done" | "empty";
 type Result = { ok: boolean; response: string; before: number; after: number; mastered: boolean; ms: number };
@@ -75,6 +82,35 @@ function Session({ scope }: { scope: Scope }) {
   const [struck, setStruck] = useState<Set<string>>(new Set());
   const [grid, setGrid] = useState("");
   const [calc, setCalc] = useState(false);
+  // calculator width while dragging (null when not dragging); the saved width otherwise
+  const [dragFrac, setDragFrac] = useState<number | null>(null);
+  const calcFrac = dragFrac ?? clampCalc(state.settings.calcWidth ?? DEFAULT_SETTINGS.calcWidth);
+  const saveCalcWidth = (f: number) => update((s) => void (s.settings.calcWidth = clampCalc(f)));
+  const startCalcDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const handle = e.currentTarget;
+    handle.setPointerCapture(e.pointerId);
+    document.body.classList.add("resizing");
+    let last = calcFrac;
+    const move = (ev: PointerEvent) => {
+      const w = window.innerWidth;
+      // leave the question at least 360px on narrower screens
+      last = Math.min(clampCalc((w - ev.clientX) / w), Math.max(CALC_MIN, (w - 360) / w));
+      setDragFrac(last);
+    };
+    const end = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", end);
+      handle.removeEventListener("pointercancel", end);
+      document.body.classList.remove("resizing");
+      saveCalcWidth(last);
+      setDragFrac(null);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", end);
+    handle.addEventListener("pointercancel", end);
+  };
   const [ref, setRef] = useState(false);
   const [showWhy, setShowWhy] = useState(false);
   const [tally, setTally] = useState<Tally>(init.tally);
@@ -410,7 +446,27 @@ function Session({ scope }: { scope: Scope }) {
             ))}
           </div>
         </aside>
-        <aside className="calcpanel" style={{ display: calc ? "flex" : "none" }} data-noadvance>
+        <aside className="calcpanel" style={{ display: calc ? "flex" : "none", width: `${calcFrac * 100}vw` }} data-noadvance>
+          <div
+            className="resize-handle"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Drag to resize the calculator"
+            aria-valuemin={CALC_MIN * 100}
+            aria-valuemax={CALC_MAX * 100}
+            aria-valuenow={Math.round(calcFrac * 100)}
+            tabIndex={0}
+            title="Drag to resize. Double-click to reset."
+            onPointerDown={startCalcDrag}
+            onDoubleClick={() => saveCalcWidth(DEFAULT_SETTINGS.calcWidth)}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                e.preventDefault();
+                e.stopPropagation();
+                saveCalcWidth(calcFrac + (e.key === "ArrowLeft" ? 0.03 : -0.03));
+              }
+            }}
+          />
           <div className="panel-head">
             <strong>Calculator</strong>
             <button className="icon-btn" onClick={() => setCalc(false)} aria-label="Close calculator">

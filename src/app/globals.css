@@ -970,7 +970,7 @@ button.row {
 .refsheet,
 .calcpanel {
   flex: none;
-  width: min(44vw, 620px);
+  width: min(32vw, 380px);
   border-left: 1px solid var(--line);
   position: sticky;
   top: 65px;
@@ -979,6 +979,43 @@ button.row {
 }
 .calcpanel {
   flex-direction: column;
+  min-width: 320px;
+}
+/* drag handle on the calculator's left edge */
+.resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -6px;
+  width: 12px;
+  z-index: 5;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 4px;
+  width: 4px;
+  height: 44px;
+  margin-top: -22px;
+  border-radius: 99px;
+  background: var(--line-strong);
+  transition: background 0.12s ease, height 0.12s ease;
+}
+.resize-handle:hover::after,
+.resize-handle:focus-visible::after,
+body.resizing .resize-handle::after {
+  background: var(--ink);
+  height: 64px;
+  margin-top: -32px;
+}
+body.resizing,
+body.resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 .refsheet {
   width: min(32vw, 380px);
@@ -1028,11 +1065,15 @@ button.row {
   .qtext {
     font-size: 16.5px;
   }
+  .resize-handle {
+    display: none;
+  }
   .refsheet,
   .calcpanel {
     position: fixed;
     inset: 61px 0 0 0;
-    width: auto;
+    width: auto !important;
+    min-width: 0;
     height: auto;
     z-index: 40;
   }
