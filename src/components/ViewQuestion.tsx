@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Blocks } from "./Content";
 import { IconCheck } from "./icons";
-import { byId, shortCode, subByKey, subKeyOf } from "@/lib/bank";
+import { byId, label, subByKey, subKeyOf } from "@/lib/bank";
 import { loadQuestion, type QData } from "@/lib/data";
 import { scopeHref } from "@/lib/scope";
 
@@ -31,7 +31,7 @@ export function ViewQuestion() {
         {sub.n}. {sub.name}
       </Link>
       <div className="qmeta" style={{ marginTop: 18 }}>
-        <span className="tile">{shortCode(meta.code)}</span>
+        <span className="tile">{label(meta)}</span>
         <div className="grow">
           <div className="qsub">{meta.pattern}</div>
           <div className="muted qcat">

@@ -7,7 +7,7 @@ import refSheet from "@/generated/ref.json";
 import { Blocks } from "./Content";
 import { DesmosPanel } from "./Desmos";
 import { IconArrowLeft, IconBookmark, IconBulb, IconCalc, IconCheck, IconEye, IconPause, IconPlay, IconSheet, IconStrike, IconX } from "./icons";
-import { byId, shortCode, subByKey, subKeyOf, teach, type Teach } from "@/lib/bank";
+import { byId, label, subByKey, subKeyOf, teach, type Teach } from "@/lib/bank";
 import { checkGridIn, cleanGridInput } from "@/lib/answer";
 import { createEngine, nextQuestion, recordAnswer, remaining, startWith, TARGET, type Engine } from "@/lib/engine";
 import { loadQuestion, type QData } from "@/lib/data";
@@ -306,7 +306,7 @@ function Session({ scope }: { scope: Scope }) {
               {meta && sub ? (
                 <div className="qmeta" data-noadvance>
                   <span className="tile" data-m={Math.min(p?.c ?? 0, TARGET)}>
-                    {shortCode(meta.code)}
+                    {label(meta)}
                   </span>
                   <div className="grow">
                     <Link href={`/patterns/${subKey}/`} className="qsub">

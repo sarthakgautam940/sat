@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { byId, sectionName, shortCode, subByKey, teach } from "@/lib/bank";
+import { byId, sectionName, label, subByKey, teach } from "@/lib/bank";
 import { TARGET } from "@/lib/engine";
 import { scopeHref } from "@/lib/scope";
 import { useHydrated, useStore, type State } from "@/lib/store";
@@ -62,7 +62,7 @@ export function PatternView({ subKey }: { subKey: string }) {
               <div key={id} className="row" style={{ padding: 0 }}>
               <Link href={scopeHref({ kind: "sub", value: subKey, start: id })} className="row grow" style={{ margin: 0 }}>
                 <span className="tile" data-m={c}>
-                  {shortCode(q.code)}
+                  {label(q)}
                 </span>
                 <span className="grow">
                   <span style={{ fontWeight: 600 }}>{q.pattern}</span>

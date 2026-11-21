@@ -52,11 +52,11 @@ export function JumpDialog() {
             setValue(e.target.value);
             setMiss(false);
           }}
-          placeholder="5c, M5c, or R15z"
+          placeholder="5, 5b, or R15c"
           autoComplete="off"
         />
         <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>
-          {miss ? "No question with that number." : "Math codes start with M, Reading and Writing codes with R. Without a letter, Math comes first."}
+          {miss ? "No question with that number." : "A number alone is the first question of that pattern. Start with R for Reading and Writing; without a letter, Math comes first."}
         </p>
       </form>
     </div>

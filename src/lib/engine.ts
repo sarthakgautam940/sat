@@ -73,6 +73,8 @@ export const MAX_WINDOW = 12;
 export function nextQuestion(e: Engine, need: Need): string | null {
   fill(e, need, e.window);
   if (e.active.length === 0) return null;
+  // a fresh session opens on the first question in its order, never a shuffled one
+  if (e.step === 0 && e.active.every((s) => s.seen === 0)) return e.active[0].id;
 
   // Never repeat the last question; avoid the last two when there is room.
   const block = e.active.length >= 3 ? 2 : e.active.length === 2 ? 1 : 0;
@@ -86,7 +88,10 @@ export function nextQuestion(e: Engine, need: Need): string | null {
     fill(e, need, e.active.length + 1);
     due = e.active.filter((s) => s.due <= e.step && !recent.includes(s.id));
   }
-  const pool = due.length ? due : candidates;
+  let pool = due.length ? due : candidates;
+  // questions already in rotation that are due (a miss coming back) go before new ones
+  const reviews = pool.filter((s) => s.seen > 0 && s.due <= e.step);
+  if (reviews.length) pool = reviews;
   pool.sort((a, b) => a.due - b.due || a.seen - b.seen || b.left - a.left);
   // Among questions that came due at about the same time, pick at random so the order
   // never settles into a pattern you could learn instead of the questions.

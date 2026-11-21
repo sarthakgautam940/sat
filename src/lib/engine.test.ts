@@ -90,4 +90,12 @@ describe("mastery scheduler", () => {
     expect(startWith(e, "b", need)).toBe("b");
     expect(e.active[0].id).toBe("b");
   });
+
+  it("opens a fresh session on the first question in its order", () => {
+    const ids = Array.from({ length: 9 }, (_, i) => `q${i}`);
+    for (let trial = 0; trial < 50; trial++) {
+      const need = () => TARGET;
+      expect(nextQuestion(createEngine(ids, need), need)).toBe("q0");
+    }
+  });
 });

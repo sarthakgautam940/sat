@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { sections, sectionName, shortCode, subByKey, subKeyOf } from "@/lib/bank";
+import { sections, sectionName, fullLabel, subByKey, subKeyOf } from "@/lib/bank";
 import { scopeHref } from "@/lib/scope";
 import { breakdown, daily, mostMissed, pct, weakest, type Agg } from "@/lib/stats";
 import { formatDay, formatDuration } from "@/lib/dates";
@@ -158,7 +158,7 @@ export function StatsView() {
               {missed.map(({ q, w, n, c }) => (
                 <Link key={q.id} href={scopeHref({ kind: "sub", value: subKeyOf(q), start: q.id })} className="row">
                   <span className="tile" data-m={Math.min(c, 5)}>
-                    {shortCode(q.code)}
+                    {fullLabel(q)}
                   </span>
                   <span className="grow" style={{ fontSize: 14.5 }}>
                     {q.pattern}

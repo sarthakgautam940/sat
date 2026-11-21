@@ -3,19 +3,13 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { IconBookmark, IconCheck, IconX } from "./icons";
-import { byId, sections, shortCode, type SectionKey, type Sub } from "@/lib/bank";
+import { byId, label, sections, type SectionKey } from "@/lib/bank";
 import { TARGET } from "@/lib/engine";
 import { scopeHref } from "@/lib/scope";
 import { useHydrated, useStore, type State } from "@/lib/store";
 
 function level(state: State, id: string) {
   return Math.min(state.q[id]?.c ?? 0, TARGET);
-}
-
-function subLevel(state: State, sub: Sub) {
-  const total = sub.qs.length * TARGET;
-  const got = sub.qs.reduce((a, id) => a + level(state, id), 0);
-  return Math.round((got / total) * TARGET);
 }
 
 export function BankView() {
@@ -102,36 +96,17 @@ export function BankView() {
                   <Link href={`/patterns/${s.key}/`} className="sub-name">
                     {s.name}
                   </Link>
-                  <Link href={scopeHref({ kind: "sub", value: s.key })} className="tile big" data-m={subLevel(st, s)} title={`Practice all of pattern ${s.n}`}>
-                    {s.n}
-                  </Link>
-                  <div className="sub-tiles">
-                    {s.qs.map((id) => {
-                      const q = byId.get(id)!;
-                      const p = st.q[id];
-                      const m = level(st, id);
-                      return (
-                        <Link
-                          key={id}
-                          href={scopeHref({ kind: "sub", value: s.key, start: id })}
-                          className="tile"
-                          data-m={m}
-                          title={`${q.code}: ${q.pattern}${p ? `. ${m} of ${TARGET} correct${p.w ? `, missed ${p.w}` : ""}` : ""}`}
-                        >
-                          {shortCode(q.code)}
-                          {m >= TARGET ? (
-                            <span className="badge">
-                              <IconCheck size={11} strokeWidth={3} />
-                            </span>
-                          ) : p?.lw ? (
-                            <span className="badge miss">
-                              <IconX size={11} strokeWidth={3} />
-                            </span>
-                          ) : null}
-                        </Link>
-                      );
-                    })}
-                  </div>
+                  {/* the big tile is the pattern's first question */}
+                  <QTile id={s.qs[0]} subKey={s.key} st={st} big />
+                  {s.qs.length > 1 ? (
+                    <div className="sub-tiles">
+                      {s.qs.slice(1).map((id) => (
+                        <QTile key={id} id={id} subKey={s.key} st={st} />
+                      ))}
+                    </div>
+                  ) : (
+                    <div />
+                  )}
                 </div>
               ))}
             </section>
@@ -160,6 +135,32 @@ export function BankView() {
         </div>
       </div>
     </div>
+  );
+}
+
+function QTile({ id, subKey, st, big }: { id: string; subKey: string; st: State; big?: boolean }) {
+  const q = byId.get(id)!;
+  const p = st.q[id];
+  const m = level(st, id);
+  const name = label(q);
+  return (
+    <Link
+      href={scopeHref({ kind: "sub", value: subKey, start: id })}
+      className={big ? "tile big" : "tile"}
+      data-m={m}
+      title={`${name}: ${q.pattern}${p ? `. ${m} of ${TARGET} correct${p.w ? `, missed ${p.w}` : ""}` : ""}`}
+    >
+      {name}
+      {m >= TARGET ? (
+        <span className="badge">
+          <IconCheck size={11} strokeWidth={3} />
+        </span>
+      ) : p?.lw ? (
+        <span className="badge miss">
+          <IconX size={11} strokeWidth={3} />
+        </span>
+      ) : null}
+    </Link>
   );
 }
 
