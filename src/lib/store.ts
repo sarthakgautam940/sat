@@ -33,14 +33,12 @@ export type LogRow = [number, string, 0 | 1, number, string, string];
 
 export type Settings = {
   testDate: string;
-  learnUntil: string;
-  dailyGoal: number | null;
   hideTimer: boolean;
   /** calculator panel width as a share of the window (0.25 to 0.7) */
   calcWidth: number;
 };
 
-export type Scope = { kind: "plan" | "section" | "category" | "sub" | "missed" | "bookmarked" | "harden" | "custom"; value?: string; label: string; start?: string };
+export type Scope = { kind: "all" | "section" | "category" | "sub" | "missed" | "bookmarked" | "harden" | "custom"; value?: string; label: string; start?: string };
 
 export type SavedSession = { scope: Scope; engine: Engine; startedAt: number; answered: number; correct: number };
 
@@ -54,8 +52,6 @@ export type State = {
 
 export const DEFAULT_SETTINGS: Settings = {
   testDate: "2026-12-05",
-  learnUntil: "2026-12-01",
-  dailyGoal: null,
   hideTimer: false,
   calcWidth: 0.42,
 };

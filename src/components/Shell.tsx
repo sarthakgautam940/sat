@@ -2,15 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { IconBook, IconChart, IconGrid, IconSettings, IconToday } from "./icons";
+import { IconChart, IconGrid, IconSettings } from "./icons";
 import { useStore } from "@/lib/store";
 import { useNow } from "@/lib/useNow";
 import { dayKey, daysBetween, formatDay } from "@/lib/dates";
 
 const NAV = [
-  { href: "/", label: "Today", icon: IconToday },
-  { href: "/bank/", label: "Question bank", icon: IconGrid },
-  { href: "/patterns/", label: "Patterns", icon: IconBook },
+  { href: "/", label: "Question bank", icon: IconGrid },
   { href: "/stats/", label: "Stats", icon: IconChart },
   { href: "/settings/", label: "Settings", icon: IconSettings },
 ];

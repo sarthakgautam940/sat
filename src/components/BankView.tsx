@@ -24,14 +24,17 @@ export function BankView() {
     let started = 0;
     let missed = 0;
     let marked = 0;
+    let unchecked = 0;
     for (const [id, p] of Object.entries(st.q)) {
       if (!byId.has(id)) continue;
-      if (p.c >= TARGET) mastered++;
-      else if (p.n > 0) started++;
+      if (p.c >= TARGET) {
+        mastered++;
+        if (!p.h) unchecked++;
+      } else if (p.n > 0) started++;
       if (p.w > 0) missed++;
       if (p.bm) marked++;
     }
-    return { mastered, started, missed, marked };
+    return { mastered, started, missed, marked, unchecked };
   }, [st]);
 
   return (
@@ -61,6 +64,11 @@ export function BankView() {
           <Link href={scopeHref({ kind: "missed" })} className="rail-item">
             <IconX size={17} /> Missed <span className="tnum muted">{counts.missed}</span>
           </Link>
+          {counts.unchecked ? (
+            <Link href={scopeHref({ kind: "harden" })} className="rail-item" title="One more pass over mastered questions; a miss drops it back to 3 of 5">
+              <IconCheck size={17} /> Final check <span className="tnum muted">{counts.unchecked}</span>
+            </Link>
+          ) : null}
           <div className="rail-label">Topics</div>
           {section.categories.map((c) => {
             const ids = c.subs.flatMap((s) => s.qs);
@@ -93,9 +101,7 @@ export function BankView() {
               </div>
               {c.subs.map((s) => (
                 <div key={s.key} className="sub-row">
-                  <Link href={`/patterns/${s.key}/`} className="sub-name">
-                    {s.name}
-                  </Link>
+                  <span className="sub-name">{s.name}</span>
                   {/* the big tile is the pattern's first question */}
                   <QTile id={s.qs[0]} subKey={s.key} st={st} big />
                   {s.qs.length > 1 ? (

@@ -1,14 +1,12 @@
 import { TARGET } from "./engine";
 import { questions, sections, subByKey, subKeyOf, type QMeta } from "./bank";
-import { phaseOf } from "./plan";
-import { dayKey } from "./dates";
 import type { Scope, State } from "./store";
 import type { Mode } from "./progress";
 
 // Which questions a session draws from, in priority order.
 
 export function scopeFromParams(p: URLSearchParams): Scope {
-  const kind = (p.get("s") ?? "plan") as Scope["kind"];
+  const kind = (p.get("s") ?? "all") as Scope["kind"];
   const value = p.get("v") ?? undefined;
   const start = p.get("q") ?? undefined;
   return { kind, value, start, label: scopeLabel(kind, value) };
@@ -24,8 +22,8 @@ export function scopeHref(scope: Pick<Scope, "kind" | "value" | "start">): strin
 
 export function scopeLabel(kind: Scope["kind"], value?: string): string {
   switch (kind) {
-    case "plan":
-      return "Today's session";
+    case "all":
+      return "All questions";
     case "section":
       return value === "rw" ? "All Reading and Writing" : "All Math";
     case "category":
@@ -39,19 +37,14 @@ export function scopeLabel(kind: Scope["kind"], value?: string): string {
     case "bookmarked":
       return "Bookmarked";
     case "harden":
-      return "Final hardening";
+      return "Final check";
     default:
       return "Practice";
   }
 }
 
-export function modeOf(scope: Scope, state: State): Mode {
-  if (scope.kind === "harden") return "harden";
-  if (scope.kind === "plan") {
-    const ph = phaseOf(dayKey(Date.now()), state.settings);
-    if (ph === "harden" || ph === "review") return "harden";
-  }
-  return "learn";
+export function modeOf(scope: Scope): Mode {
+  return scope.kind === "harden" ? "harden" : "learn";
 }
 
 /** Interleave Math and Reading and Writing patterns so a long session alternates subjects. */
@@ -98,19 +91,11 @@ export function poolFor(scope: Scope, state: State): string[] {
     case "custom":
       list = (scope.value ?? "").split(",").map((id) => questions.find((q) => q.id === id)).filter((q): q is QMeta => !!q);
       break;
-    default: {
-      // Today's session: finish what is in progress, then new questions in curriculum order.
-      const mode = modeOf(scope, state);
-      const started = ORDER.filter(inProgress).sort(byRecentMiss);
-      if (mode === "harden") {
-        const toCheck = ORDER.filter((q) => (p(q.id)?.c ?? 0) >= TARGET && !p(q.id)?.h).sort((a, b) => (p(b.id)?.w ?? 0) - (p(a.id)?.w ?? 0));
-        list = [...started, ...toCheck, ...ORDER.filter((q) => !p(q.id) || p(q.id)!.n === 0)];
-      } else {
-        list = [...started, ...ORDER.filter((q) => !p(q.id) || p(q.id)!.n === 0)];
-      }
-    }
+    default:
+      // the whole bank: finish what is in progress (latest misses first), then new questions in curriculum order
+      list = [...ORDER.filter(inProgress).sort(byRecentMiss), ...ORDER.filter((q) => !inProgress(q))];
   }
-  if (scope.kind !== "plan" && scope.kind !== "missed" && scope.kind !== "harden") {
+  if (scope.kind !== "all" && scope.kind !== "missed" && scope.kind !== "harden") {
     // inside a chosen set, finish started questions first
     list = [...list.filter(inProgress), ...list.filter((q) => !inProgress(q))];
   }

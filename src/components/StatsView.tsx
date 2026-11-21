@@ -132,7 +132,7 @@ export function StatsView() {
           {weak.length ? (
             <div className="rows">
               {weak.map((w) => (
-                <Link key={w.key} href={`/patterns/${w.key}/`} className="row">
+                <Link key={w.key} href={scopeHref({ kind: "sub", value: w.key })} className="row">
                   <span className="grow">
                     <span style={{ fontWeight: 600 }}>
                       {subByKey.get(w.key)!.n}. {w.name}

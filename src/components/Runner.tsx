@@ -14,9 +14,7 @@ import { loadQuestion, type QData } from "@/lib/data";
 import { needFor, recordAttempt, toggleBookmark, type Mode } from "@/lib/progress";
 import { modeOf, poolFor, scopeFromParams } from "@/lib/scope";
 import { DEFAULT_SETTINGS, getState, qs, update, useHydrated, useStore, type Scope } from "@/lib/store";
-import { useNow } from "@/lib/useNow";
 import { clock } from "@/lib/dates";
-import { planToday } from "@/lib/plan";
 
 /** The calculator can take from a quarter of the window up to 70 percent of it. */
 const CALC_MIN = 0.25;
@@ -38,7 +36,7 @@ type Init = { engine: Engine; mode: Mode; review: Set<string>; scopeIds: string[
 /** Build or resume the session from saved progress (runs once, on the client). */
 function initSession(scope: Scope): Init {
   const s = getState();
-  const mode = modeOf(scope, s);
+  const mode = modeOf(scope);
   const review = new Set<string>();
   const scopeIds = poolFor(scope, s);
   const need = (id: string) => {
@@ -71,7 +69,6 @@ export function Runner() {
 
 function Session({ scope }: { scope: Scope }) {
   const state = useStore();
-  const now = useNow();
   const [init] = useState(() => initSession(scope));
   const { engine, mode, review, scopeIds, need } = init;
 
@@ -243,14 +240,13 @@ function Session({ scope }: { scope: Scope }) {
   const sub = subKey ? subByKey.get(subKey) : undefined;
   const note = subKey ? teach[subKey] : undefined;
   const p = current ? qs(state, current) : null;
-  const today = now ? planToday(state, now) : null;
   const scopeDone = scopeIds.filter((id) => (state.q[id]?.c ?? 0) >= TARGET).length;
 
   return (
     <div className={`runner${calc || ref ? " split" : ""}`}>
       <header className="rhead" data-noadvance>
         <div className="rhead-l">
-          <Link href="/bank/" className="icon-btn" aria-label="Back to the question bank">
+          <Link href="/" className="icon-btn" aria-label="Back to the question bank">
             <IconArrowLeft />
           </Link>
           <div className="rscope">
@@ -281,11 +277,6 @@ function Session({ scope }: { scope: Scope }) {
           </button>
         </div>
         <div className="rhead-r">
-          {today && scope.kind === "plan" ? (
-            <span className="today-chip tnum" title="Correct answers today toward today's target">
-              {today.done} / {today.target} today
-            </span>
-          ) : null}
           <button className="icon-btn" aria-pressed={ref} onClick={() => setRef((v) => !v)} aria-label="Reference sheet" title="Reference sheet">
             <IconSheet />
           </button>
@@ -309,9 +300,9 @@ function Session({ scope }: { scope: Scope }) {
                     {label(meta)}
                   </span>
                   <div className="grow">
-                    <Link href={`/patterns/${subKey}/`} className="qsub">
+                    <div className="qsub">
                       {sub.n}. {sub.name}
-                    </Link>
+                    </div>
                     <div className="muted qcat">
                       {meta.section === "math" ? "Math" : "Reading and Writing"}, {meta.category}
                     </div>
@@ -570,9 +561,6 @@ function Done({ tally }: { tally: { answered: number; correct: number; mastered:
       </p>
       <div style={{ display: "flex", gap: 10, marginTop: 24, flexWrap: "wrap" }}>
         <Link className="btn" href="/">
-          Today
-        </Link>
-        <Link className="btn btn-ghost" href="/bank/">
           Question bank
         </Link>
       </div>
@@ -587,14 +575,14 @@ function EmptySet({ scope }: { scope: Scope }) {
       : scope.kind === "bookmarked"
         ? "No bookmarks yet. Use the bookmark button on any question."
         : scope.kind === "harden"
-          ? "Nothing to harden: master some questions first, or every mastered question already passed its check."
+          ? "Nothing to check yet: master some questions first, or every mastered question already passed its final check."
           : "Every question in this set is mastered.";
   return (
     <div className="done">
       <h1 className="title">{scope.label}</h1>
       <p className="subtitle">{msg}</p>
       <div style={{ marginTop: 24 }}>
-        <Link className="btn" href="/bank/">
+        <Link className="btn" href="/">
           Question bank
         </Link>
       </div>

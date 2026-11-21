@@ -1,5 +1,5 @@
-import { TodayView } from "@/components/TodayView";
+import { BankView } from "@/components/BankView";
 
-export default function TodayPage() {
-  return <TodayView />;
+export default function BankPage() {
+  return <BankView />;
 }

@@ -332,30 +332,7 @@ button {
   }
 }
 
-/* ------------------------------------------------------------------ bars */
-.bar {
-  height: 8px;
-  border-radius: 99px;
-  background: var(--soft-2);
-  overflow: hidden;
-}
-.bar > span {
-  display: block;
-  height: 100%;
-  background: var(--ink);
-  border-radius: 99px;
-}
-.bar.thin {
-  height: 4px;
-}
-
-/* ------------------------------------------------------------------ cards and rows */
-.card {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 22px 24px;
-  background: #fff;
-}
+/* ------------------------------------------------------------------ rows */
 .rows {
   display: flex;
   flex-direction: column;
@@ -692,14 +669,6 @@ button.row {
   min-width: 64px;
   text-align: center;
 }
-.today-chip {
-  font-size: 13.5px;
-  font-weight: 650;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: var(--soft);
-  white-space: nowrap;
-}
 .rbody {
   flex: 1;
   display: flex;
@@ -725,9 +694,6 @@ button.row {
   font-size: 18px;
   letter-spacing: -0.01em;
   text-decoration: none;
-}
-.qsub:hover {
-  text-decoration: underline;
 }
 .qcat {
   font-size: 13.5px;
@@ -1056,9 +1022,6 @@ body.resizing * {
   .rscope span {
     display: none;
   }
-  .today-chip {
-    display: none;
-  }
   .qpane {
     padding: 22px 16px 100px;
   }
@@ -1162,10 +1125,6 @@ body.resizing * {
   text-decoration: none;
   line-height: 1.3;
 }
-.sub-name:hover {
-  color: var(--ink);
-  text-decoration: underline;
-}
 .sub-tiles {
   display: flex;
   flex-wrap: wrap;
@@ -1193,70 +1152,6 @@ body.resizing * {
   .sub-tiles {
     padding-left: 12px;
   }
-}
-
-/* ------------------------------------------------------------------ today */
-.today-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 26px;
-}
-.pace {
-  margin-top: 30px;
-  max-width: 560px;
-}
-.pace-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-.pace-row strong {
-  font-size: 20px;
-  font-weight: 800;
-}
-.plan {
-  display: flex;
-  flex-direction: column;
-}
-.plan-phase {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 16px 0 8px;
-  font-size: 14.5px;
-}
-.plan-phase .muted {
-  font-size: 13.5px;
-}
-.plan-day {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 7px 12px;
-  margin: 0 -12px;
-  border-radius: 10px;
-  font-size: 14.5px;
-}
-.plan-day.past {
-  color: var(--ink-3);
-}
-.plan-day.now {
-  background: var(--soft);
-  font-weight: 700;
-}
-.plan-date {
-  width: 96px;
-  flex: none;
-}
-.plan-day .bar {
-  max-width: 280px;
-}
-.plan-num {
-  width: 96px;
-  text-align: right;
-  flex: none;
 }
 
 /* ------------------------------------------------------------------ stats and settings */

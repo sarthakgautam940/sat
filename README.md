@@ -22,7 +22,7 @@ Progress is stored in the browser (localStorage). Settings has Export and Import
 - **Mastery.** A question is mastered after 5 correct answers. Wrong answers never count toward the 5.
 - **Spacing** (`src/lib/engine.ts`). A session keeps a small working set. After a miss, the question returns after 2 other questions; after correct answers 1 to 4 it returns after 3, 5, 8, then 12 others. A question never shows twice in a row, the set grows only when nothing is due, and every question comes back within about a dozen steps. Questions due at the same time come in a shuffled order.
 - **Feedback.** Picking a choice shows green or red at once, then the College Board explanation and the pattern's teaching note. Click anywhere (or press Enter) to move on. Keys A to D or 1 to 4 answer.
-- **Plan** (`src/lib/plan.ts`). Learning runs through December 1: the daily target is the correct answers still needed divided by the days left. December 2 and 3 are hardening days (one clean pass over every mastered question; a miss drops it to 3 of 5), December 4 is a light review of the most-missed questions, and December 5 is the test. Both dates can be changed in Settings.
+- **The bank is the home page.** Click a tile to practice that pattern starting from that question, or use Practice this topic, Practice all, Bookmarked, or Missed. Once questions are mastered, Final check runs one more pass over them; a miss drops a question back to 3 of 5.
 - **Analytics** (`src/lib/stats.ts`). First-try accuracy (the best signal for test day), accuracy by topic and pattern, time per answer, the last 14 days, the weakest patterns, and the most-missed questions.
 
 ## Where the content comes from

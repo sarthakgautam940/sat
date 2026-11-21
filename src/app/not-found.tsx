@@ -6,7 +6,7 @@ export default function NotFound() {
       <h1 className="title">Page not found</h1>
       <p className="subtitle">That page isn&apos;t part of the bank.</p>
       <Link className="btn" href="/" style={{ marginTop: 24 }}>
-        Today
+        Question bank
       </Link>
     </div>
   );
