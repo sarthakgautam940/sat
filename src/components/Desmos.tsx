@@ -74,7 +74,7 @@ export function DesmosPanel({ visible }: { visible: boolean }) {
   useEffect(() => () => calc.current?.destroy(), []);
 
   return (
-    <div className="desmos" style={{ display: visible ? "flex" : "none" }} data-noadvance>
+    <div className="desmos" style={{ display: visible ? "flex" : "none" }}>
       {error ? (
         <p className="muted" style={{ padding: 20 }}>
           The calculator needs an internet connection to load. You can also open{" "}

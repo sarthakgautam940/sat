@@ -39,7 +39,7 @@ export function JumpDialog() {
     router.push(scopeHref({ kind: "sub", value: subKeyOf(q), start: q.id }));
   };
   return (
-    <div className="overlay" onMouseDown={() => setOpen(false)} data-noadvance>
+    <div className="overlay" onMouseDown={() => setOpen(false)}>
       <form className="jump" onMouseDown={(e) => e.stopPropagation()} onSubmit={submit}>
         <label htmlFor="jump" className="h3">
           Jump to a question

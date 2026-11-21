@@ -873,7 +873,7 @@ button.row {
   border: 1.5px solid var(--good-line);
   background: #fff;
   overflow: hidden;
-  scroll-margin-bottom: 24px;
+  scroll-margin-bottom: 96px;
 }
 .feedback[data-ok="0"] {
   border-color: var(--bad-line);
@@ -922,12 +922,25 @@ button.row {
 .teach li {
   margin-bottom: 4px;
 }
-.advance-hint {
-  margin: 0;
-  padding: 12px 20px 16px;
-  font-size: 13.5px;
-  color: var(--ink-3);
+.nextbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 14px 0 18px;
+  background: #fff;
   border-top: 1px solid var(--line);
+}
+.nextbar .btn {
+  gap: 8px;
+  min-width: 190px;
+}
+.nextbar-hint {
+  font-size: 13.5px;
 }
 .done {
   max-width: 640px;
@@ -1024,6 +1037,12 @@ body.resizing * {
   }
   .qpane {
     padding: 22px 16px 100px;
+  }
+  .nextbar-hint {
+    display: none;
+  }
+  .nextbar .btn {
+    flex: 1;
   }
   .qtext {
     font-size: 16.5px;

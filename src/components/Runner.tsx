@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import refSheet from "@/generated/ref.json";
 import { Blocks } from "./Content";
 import { DesmosPanel } from "./Desmos";
-import { IconArrowLeft, IconBookmark, IconBulb, IconCalc, IconCheck, IconEye, IconPause, IconPlay, IconSheet, IconStrike, IconX } from "./icons";
+import { IconArrowLeft, IconArrowRight, IconBookmark, IconBulb, IconCalc, IconCheck, IconEye, IconPause, IconPlay, IconSheet, IconStrike, IconX } from "./icons";
 import { byId, label, subByKey, subKeyOf, teach, type Teach } from "@/lib/bank";
 import { checkGridIn, cleanGridInput } from "@/lib/answer";
 import { createEngine, nextQuestion, recordAnswer, remaining, startWith, TARGET, type Engine } from "@/lib/engine";
@@ -195,32 +195,30 @@ function Session({ scope }: { scope: Scope }) {
     setTurn((t) => t + 1);
   }, [phase, engine, need, scope]);
 
-  // Click anywhere to continue (not on controls, links, panels, or while selecting text).
+  // After answering, only the Next question button (or a deliberate Enter) moves on. Clicks,
+  // Space, and arrow keys never do. Enter is ignored while held, right after answering (so the
+  // Enter that submitted a typed answer can't skip the feedback), and inside the calculator,
+  // the reference sheet, or a focused control, which handle Enter themselves.
   useEffect(() => {
     if (phase !== "feedback") return;
     const armedAt = performance.now();
-    const onClick = (e: MouseEvent) => {
-      if (performance.now() - armedAt < 250) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" || e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+      if (performance.now() - armedAt < 400) return;
       const el = e.target as HTMLElement;
-      if (el.closest("[data-noadvance], a, button, input, .desmos, .refsheet")) return;
-      if (window.getSelection()?.toString()) return;
+      if (el.closest("a, button, input, textarea, select, [contenteditable], .calcpanel, .refsheet, .overlay")) return;
+      e.preventDefault();
       advance();
     };
-    document.addEventListener("click", onClick);
-    return () => document.removeEventListener("click", onClick);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [phase, advance]);
 
-  // Keyboard: A-D or 1-4 to answer, Enter / Space / right arrow to continue.
+  // Keyboard: A-D or 1-4 to answer.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
-      if (phase === "feedback" && (e.key === "Enter" || e.key === " " || e.key === "ArrowRight")) {
-        if (tag === "BUTTON" && e.key !== "ArrowRight") return;
-        e.preventDefault();
-        advance();
-        return;
-      }
       if (tag === "INPUT" || tag === "TEXTAREA") return;
       if (phase === "answer" && data?.type === "mc") {
         const k = e.key.toUpperCase();
@@ -233,7 +231,7 @@ function Session({ scope }: { scope: Scope }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [phase, data, answer, advance]);
+  }, [phase, data, answer]);
 
   const meta = current ? byId.get(current) : undefined;
   const subKey = meta ? subKeyOf(meta) : "";
@@ -244,7 +242,7 @@ function Session({ scope }: { scope: Scope }) {
 
   return (
     <div className={`runner${calc || ref ? " split" : ""}`}>
-      <header className="rhead" data-noadvance>
+      <header className="rhead">
         <div className="rhead-l">
           <Link href="/" className="icon-btn" aria-label="Back to the question bank">
             <IconArrowLeft />
@@ -295,7 +293,7 @@ function Session({ scope }: { scope: Scope }) {
           ) : (
             <div className="qcol">
               {meta && sub ? (
-                <div className="qmeta" data-noadvance>
+                <div className="qmeta">
                   <span className="tile" data-m={Math.min(p?.c ?? 0, TARGET)}>
                     {label(meta)}
                   </span>
@@ -317,7 +315,7 @@ function Session({ scope }: { scope: Scope }) {
               {data && phase !== "loading" ? (
                 <div className={`question${paused ? " paused" : ""}`} data-qid={current ?? undefined}>
                   {paused ? (
-                    <button className="paused-cover" onClick={togglePause} data-noadvance>
+                    <button className="paused-cover" onClick={togglePause}>
                       <IconPlay size={28} />
                       Paused. Click to resume.
                     </button>
@@ -386,7 +384,6 @@ function Session({ scope }: { scope: Scope }) {
                   ) : (
                     <form
                       className="gridin"
-                      data-noadvance
                       onSubmit={(e) => {
                         e.preventDefault();
                         if (grid.trim()) answer(grid.trim());
@@ -417,12 +414,21 @@ function Session({ scope }: { scope: Scope }) {
               )}
 
               {phase === "feedback" && result && data ? (
-                <Feedback result={result} data={data} note={note} showWhy={showWhy} setShowWhy={setShowWhy} subName={sub?.name ?? ""} />
+                <>
+                  <Feedback result={result} data={data} note={note} showWhy={showWhy} setShowWhy={setShowWhy} subName={sub?.name ?? ""} />
+                  <div className="nextbar">
+                    <span className="muted nextbar-hint">or press Enter</span>
+                    <button className="btn" onClick={advance}>
+                      {remaining(engine) ? "Next question" : "Finish set"}
+                      <IconArrowRight size={18} />
+                    </button>
+                  </div>
+                </>
               ) : null}
             </div>
           )}
         </main>
-        <aside className="refsheet" style={{ display: ref ? "block" : "none" }} data-noadvance>
+        <aside className="refsheet" style={{ display: ref ? "block" : "none" }}>
           <div className="panel-head">
             <strong>Reference</strong>
             <button className="icon-btn" onClick={() => setRef(false)} aria-label="Close reference sheet">
@@ -438,7 +444,7 @@ function Session({ scope }: { scope: Scope }) {
             ))}
           </div>
         </aside>
-        <aside className="calcpanel" style={{ display: calc ? "flex" : "none", width: `${calcFrac * 100}vw` }} data-noadvance>
+        <aside className="calcpanel" style={{ display: calc ? "flex" : "none", width: `${calcFrac * 100}vw` }}>
           <div
             className="resize-handle"
             role="separator"
@@ -512,7 +518,7 @@ function Feedback({
           </div>
         </div>
         {result.ok && !showWhy ? (
-          <button className="link" onClick={() => setShowWhy(true)} data-noadvance>
+          <button className="link" onClick={() => setShowWhy(true)}>
             Show the explanation
           </button>
         ) : null}
@@ -546,7 +552,6 @@ function Feedback({
           ) : null}
         </>
       ) : null}
-      <p className="advance-hint">Click anywhere or press Enter to continue</p>
     </section>
   );
 }
