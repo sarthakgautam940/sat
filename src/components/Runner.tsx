@@ -9,7 +9,7 @@ import { DesmosPanel } from "./Desmos";
 import { IconArrowLeft, IconBookmark, IconBulb, IconCalc, IconCheck, IconEye, IconPause, IconPlay, IconSheet, IconStrike, IconX } from "./icons";
 import { byId, shortCode, subByKey, subKeyOf, teach, type Teach } from "@/lib/bank";
 import { checkGridIn, cleanGridInput } from "@/lib/answer";
-import { createEngine, nextQuestion, recordAnswer, remaining, TARGET, type Engine } from "@/lib/engine";
+import { createEngine, nextQuestion, recordAnswer, remaining, startWith, TARGET, type Engine } from "@/lib/engine";
 import { loadQuestion, type QData } from "@/lib/data";
 import { needFor, recordAttempt, toggleBookmark, type Mode } from "@/lib/progress";
 import { modeOf, poolFor, scopeFromParams } from "@/lib/scope";
@@ -55,7 +55,8 @@ function initSession(scope: Scope): Init {
   } else {
     engine = createEngine(scopeIds, need);
   }
-  const first = nextQuestion(engine, need);
+  // a clicked question always opens first; otherwise the scheduler picks
+  const first = scope.start && byId.has(scope.start) ? startWith(engine, scope.start, need) : nextQuestion(engine, need);
   return { engine, mode, review, scopeIds, first, tally, need };
 }
 

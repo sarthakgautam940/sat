@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createEngine, nextQuestion, recordAnswer, setRandom, TARGET, MAX_WINDOW } from "./engine";
+import { createEngine, nextQuestion, recordAnswer, setRandom, startWith, TARGET, MAX_WINDOW } from "./engine";
 
 let seed = 42;
 setRandom(() => {
@@ -66,5 +66,28 @@ describe("mastery scheduler", () => {
     const { counts, e } = simulate(20, (_id, k) => k % 2 === 0);
     for (const v of counts.values()) expect(v).toBe(TARGET);
     expect(e.active.length).toBe(0);
+  });
+
+  it("always opens on the clicked question, whatever its place in the set", () => {
+    const ids = Array.from({ length: 9 }, (_, i) => `q${i}`);
+    for (let trial = 0; trial < 200; trial++) {
+      const target = ids[trial % ids.length];
+      const need = () => TARGET;
+      const e = createEngine(ids, need);
+      expect(startWith(e, target, need)).toBe(target);
+      // and it is not shown again right away
+      recordAnswer(e, target, true, 1, TARGET - 1);
+      expect(nextQuestion(e, need)).not.toBe(target);
+    }
+  });
+
+  it("opens on a mastered question when it is clicked for review", () => {
+    const ids = ["a", "b", "c"];
+    const done = new Set(["b"]);
+    const need = (id: string) => (done.has(id) ? 0 : TARGET);
+    const e = createEngine(ids, need);
+    expect(e.pool).not.toContain("b");
+    expect(startWith(e, "b", need)).toBe("b");
+    expect(e.active[0].id).toBe("b");
   });
 });

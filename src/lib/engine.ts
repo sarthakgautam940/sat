@@ -94,6 +94,22 @@ export function nextQuestion(e: Engine, need: Need): string | null {
   return near[Math.floor(rand() * near.length)].id;
 }
 
+/**
+ * Open the session on a chosen question (the tile that was clicked). The shuffle in
+ * nextQuestion never applies to it: it is always the first question shown.
+ */
+export function startWith(e: Engine, id: string, need: Need): string {
+  fill(e, need, e.window);
+  const i = e.active.findIndex((s) => s.id === id);
+  if (i > 0) e.active.unshift(...e.active.splice(i, 1));
+  if (i < 0) {
+    const j = e.pool.indexOf(id);
+    if (j >= 0) e.pool.splice(j, 1);
+    e.active.unshift({ id, due: e.step, left: Math.max(1, need(id)), seen: 0 });
+  }
+  return id;
+}
+
 /** Record an answer for id. newLeft is how many correct answers it still needs afterward. */
 export function recordAnswer(e: Engine, id: string, ok: boolean, correctSoFar: number, newLeft: number): Engine {
   e.step += 1;
