@@ -70,11 +70,16 @@ export function BankView() {
             </Link>
           ) : null}
           <div className="rail-label">
-            Topics <span>mastered</span>
+            Topics <span>answered right</span>
           </div>
           {section.categories.map((c) => {
             const ids = c.subs.flatMap((s) => s.qs);
             const m = ids.filter((id) => level(st, id) >= TARGET).length;
+            // questions gotten right so far: the ones whose tile shows a green check (or that are on their way to 5)
+            const right = ids.filter((id) => {
+              const p = st.q[id];
+              return !!p && (p.c > 0 || (p.n > 0 && !p.lw));
+            }).length;
             // every correct answer counts here, toward 5 per question
             const reps = ids.reduce((n, id) => n + level(st, id), 0);
             const of = ids.length * TARGET;
@@ -83,7 +88,7 @@ export function BankView() {
                 key={c.name}
                 href={`#${slug(sec, c.name)}`}
                 className="rail-item rail-topic"
-                title={`${m} of ${ids.length} mastered. ${reps} of ${of} correct answers toward mastering all of them.`}
+                title={`${right} of ${ids.length} answered right, ${m} mastered. The bar: ${reps} of ${of} correct answers toward mastering all of them.`}
               >
                 <span className="grow">
                   {c.name}
@@ -92,7 +97,7 @@ export function BankView() {
                   </span>
                 </span>
                 <span className="tnum muted">
-                  {m}/{ids.length}
+                  {right}/{ids.length}
                 </span>
               </a>
             );
