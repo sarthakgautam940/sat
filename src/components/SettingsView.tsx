@@ -1,8 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { DEFAULT_SETTINGS, replaceState, resetState, update, useHydrated, useStore, type State } from "@/lib/store";
-import { formatCode, joinSync, startNewSync, stopSync, syncLink, syncNow, useSyncStatus } from "@/lib/sync";
+import { applySyncedState, DEFAULT_SETTINGS, getState, normalizeState, resetState, update, useHydrated, useStore, type State } from "@/lib/store";
+import { formatCode, joinSync, mergeStates, startNewSync, stopSync, syncLink, syncNow, useSyncStatus } from "@/lib/sync";
 import { ago } from "@/lib/dates";
 import { useNow } from "@/lib/useNow";
 
@@ -27,9 +27,13 @@ export function SettingsView() {
     try {
       const parsed = JSON.parse(await f.text()) as State;
       if (parsed.v !== 1 || typeof parsed.q !== "object" || !Array.isArray(parsed.log)) throw new Error("not a progress file");
-      replaceState(parsed);
+      // add the file's answers to what's here; nothing here is overwritten
+      const local = getState();
+      const merged: State = { ...mergeStates(local, normalizeState(parsed), true), gen: local.gen, genAt: local.genAt, at: Date.now() };
+      const added = merged.log.length - local.log.length;
+      applySyncedState(merged);
       void syncNow();
-      setMsg(`Imported ${Object.keys(parsed.q).length} questions of progress and ${parsed.log.length} answers.`);
+      setMsg(added ? `Added ${added} ${added === 1 ? "answer" : "answers"} from the file to your progress.` : "Everything in that file was already here.");
     } catch {
       setMsg("That file isn't a SAT Bank progress file.");
     }
@@ -62,7 +66,7 @@ export function SettingsView() {
       <section className="section">
         <h2 className="h2">Backup</h2>
         <p className="muted" style={{ marginTop: 0 }}>
-          {Object.keys(state.q).length} questions with progress, {state.log.length.toLocaleString()} answers saved.
+          {Object.keys(state.q).length} questions with progress, {state.log.length.toLocaleString()} answers saved. Importing a file adds its answers to yours; nothing is overwritten.
         </p>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <button className="btn" onClick={exportData}>

@@ -69,13 +69,28 @@ export function BankView() {
               <IconCheck size={17} /> Final check <span className="tnum muted">{counts.unchecked}</span>
             </Link>
           ) : null}
-          <div className="rail-label">Topics</div>
+          <div className="rail-label">
+            Topics <span>mastered</span>
+          </div>
           {section.categories.map((c) => {
             const ids = c.subs.flatMap((s) => s.qs);
             const m = ids.filter((id) => level(st, id) >= TARGET).length;
+            // every correct answer counts here, toward 5 per question
+            const reps = ids.reduce((n, id) => n + level(st, id), 0);
+            const of = ids.length * TARGET;
             return (
-              <a key={c.name} href={`#${slug(sec, c.name)}`} className="rail-item">
-                <span className="grow">{c.name}</span>
+              <a
+                key={c.name}
+                href={`#${slug(sec, c.name)}`}
+                className="rail-item rail-topic"
+                title={`${m} of ${ids.length} mastered. ${reps} of ${of} correct answers toward mastering all of them.`}
+              >
+                <span className="grow">
+                  {c.name}
+                  <span className="rail-bar" aria-hidden>
+                    <span style={{ width: `${(reps / of) * 100}%` }} />
+                  </span>
+                </span>
                 <span className="tnum muted">
                   {m}/{ids.length}
                 </span>

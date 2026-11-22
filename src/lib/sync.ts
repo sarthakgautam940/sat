@@ -10,14 +10,22 @@ import { applySyncedState, getState, normalizeState, subscribe, type LogRow, typ
 // a sync code. Every device that has the code shares the same progress. Two devices never
 // overwrite each other: their answer logs are combined and every question's progress is
 // rebuilt from the combined log, so an answer made anywhere is never lost. Settings and the
-// saved session come from whichever device changed last. Erasing progress (or importing a
-// file) starts a new generation, which the other devices adopt instead of merging the old
-// answers back in.
+// saved session come from whichever device changed last. Erasing progress starts a new
+// generation, which the other devices adopt instead of merging the old answers back in.
+//
+// Progress is saved per web address, and the site has several (every deployment gets its
+// own). So the site keeps one main address: opening any other one moves that address's
+// progress to the main one through the sync server, then goes there. Updates never touch
+// saved progress.
 //
 // To stay well inside the free storage tier, changes are sent at most every few minutes
 // while you practice, and right away when the tab is hidden or the app is closed.
 
 const CODE_KEY = "sat-sync-code";
+/** The main address (host, with port if any), set at build time; empty in local dev. */
+const CANONICAL = process.env.NEXT_PUBLIC_CANONICAL_HOST || "";
+/** Hosts ending in this are the site's other addresses (every Vercel deployment and alias). */
+const SITE_SUFFIX = process.env.NEXT_PUBLIC_SITE_SUFFIX || ".vercel.app";
 const API = "/api/progress";
 const PUSH_EVERY_MS = 4 * 60 * 1000;
 const ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
@@ -299,15 +307,75 @@ export function syncLink(code: string): string {
   return `${window.location.origin}/#sync=${code}`;
 }
 
+/** Combine progress handed over from another address into this one, keeping this device's own code if it has one. */
+async function absorb(input: string) {
+  const code = cleanCode(input);
+  if (!validCode(code)) return;
+  const own = readCode();
+  if (!own || own === code) {
+    await joinSync(code);
+    return;
+  }
+  setStatus({ code: own, state: "syncing" });
+  try {
+    const res = await fetch(API, { headers: { "x-sync-code": code }, cache: "no-store" });
+    const body = await readJson(res);
+    if (res.ok && body?.state) {
+      const local = getState();
+      const merged = { ...mergeStates(local, normalizeState(body.state), true), gen: local.gen, genAt: local.genAt };
+      if (!sameState(merged, local)) apply(merged);
+    }
+  } catch {
+    // the server is unreachable: the progress stays at the other address for next time
+  }
+  await syncNow();
+}
+
+/** Whether this page is on one of the site's other Vercel addresses. */
+function onOtherAddress(): boolean {
+  return !!CANONICAL && window.location.host !== CANONICAL && window.location.hostname.endsWith(SITE_SUFFIX);
+}
+
+/** Move this address's progress to the main address and go there. False if it couldn't. */
+async function moveToMainAddress(): Promise<boolean> {
+  const main = `${window.location.protocol}//${CANONICAL}${window.location.pathname}${window.location.search}`;
+  const s = getState();
+  const hasProgress = s.log.length > 0 || Object.values(s.q).some((q) => q.bm);
+  if (!hasProgress) {
+    window.location.replace(main + window.location.hash);
+    return true;
+  }
+  let code = readCode();
+  if (!code) {
+    code = newCode();
+    writeCode(code);
+  }
+  setStatus({ code });
+  await syncNow();
+  if (status.state !== "synced") return false;
+  window.location.replace(`${main}#handoff=${code}`);
+  return true;
+}
+
 /** Start the agent once per page load. */
 export function startSyncAgent() {
   if (started) return;
   started = true;
-  // a link from another device: #sync=<code>
-  const m = /(?:^#|&)sync=([a-z0-9-]+)/i.exec(window.location.hash);
+  if (onOtherAddress()) {
+    void moveToMainAddress().then((moved) => {
+      if (!moved) begin();
+    });
+    return;
+  }
+  begin();
+}
+
+function begin() {
+  // a link from another device (#sync=<code>), or progress handed over from another address (#handoff=<code>)
+  const m = /(?:^#|&)(sync|handoff)=([a-z0-9-]+)/i.exec(window.location.hash);
   if (m) {
     history.replaceState(null, "", window.location.pathname + window.location.search);
-    void joinSync(m[1]);
+    void (m[1] === "sync" ? joinSync(m[2]) : absorb(m[2]));
   } else {
     const code = readCode();
     if (code) {

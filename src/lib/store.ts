@@ -61,8 +61,8 @@ export type State = {
   /** last change on any device (ms); the newer state's settings and session win a sync */
   at?: number;
   /**
-   * Generation: a new one starts when progress is erased or replaced by an import, so
-   * syncing adopts the newer generation instead of merging the old answers back in.
+   * Generation: a new one starts when progress is erased, so syncing adopts the newer
+   * generation instead of merging the old answers back in.
    */
   gen?: string;
   genAt?: number;
@@ -134,13 +134,6 @@ function newGen(): Pick<State, "gen" | "genAt" | "at"> {
 /** Fill in anything an older or partial state is missing. */
 export function normalizeState(s: Partial<State>): State {
   return { ...fresh(), ...s, settings: { ...DEFAULT_SETTINGS, ...s.settings } } as State;
-}
-
-/** Replace everything with an imported file. It becomes the new truth on synced devices too. */
-export function replaceState(next: State) {
-  current = { ...normalizeState(next), ...newGen() };
-  save(current);
-  emit();
 }
 
 /** Erase everything. On synced devices too. */

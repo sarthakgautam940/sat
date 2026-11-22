@@ -1169,10 +1169,35 @@ body.resizing * {
   font-size: 13px;
 }
 .rail-label {
+  display: flex;
+  justify-content: space-between;
   margin: 18px 0 6px;
   font-size: 13.5px;
   color: var(--ink-3);
   font-weight: 650;
+}
+.rail-label span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-4);
+}
+.rail-topic .grow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rail-bar {
+  display: block;
+  height: 3px;
+  border-radius: 99px;
+  background: var(--line-strong);
+  overflow: hidden;
+}
+.rail-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: var(--ink);
 }
 .cat {
   padding-bottom: 26px;
