@@ -68,6 +68,8 @@ type Init = {
   tally: Tally;
   need: (id: string) => number;
   hooks: () => Hooks;
+  /** review questions answered right this session (they're done) */
+  reviewedRight: Set<string>;
 };
 
 /** Build or resume the session from saved progress (runs once, on the client). */
@@ -75,7 +77,16 @@ function initSession(scope: Scope): Init {
   const s = getState();
   const mode = modeOf(scope);
   const scopeIds = poolFor(scope, s);
-  const need = (id: string) => needFor(getState(), id, mode);
+  // Bookmarked and Missed are review lists: their questions come up even when mastered, until
+  // answered right once in this session (a review never changes mastery).
+  const review = scope.kind === "bookmarked" || scope.kind === "missed";
+  const inScope = new Set(scopeIds);
+  const reviewedRight = new Set<string>();
+  const need = (id: string) => {
+    const left = needFor(getState(), id, mode);
+    if (left > 0) return left;
+    return review && inScope.has(id) && !reviewedRight.has(id) ? 1 : 0;
+  };
   // Spacing comes from the saved answer log, so it holds across sessions and tile clicks.
   // While the whole set is waiting, questions from nearby topics are mixed in (learning only).
   const extra = mode === "learn" ? fillersFor(scope, s) : [];
@@ -86,27 +97,30 @@ function initSession(scope: Scope): Init {
   const saved = s.session;
   let engine: Engine;
   let tally: Tally = { answered: 0, correct: 0, mastered: 0 };
-  if (saved && sameScope(saved.scope, scope) && !scope.start && remainingInSet(saved.engine) > 0) {
+  const resumed = !!saved && sameScope(saved.scope, scope) && !scope.start && remainingInSet(saved.engine) > 0;
+  if (saved && resumed) {
     engine = saved.engine;
     tally = { answered: saved.answered, correct: saved.correct, mastered: 0 };
   } else {
     engine = createEngine(scopeIds, need);
   }
+  // A review list (Bookmarked, Missed) opens on its first question, like a clicked tile.
+  const opener = scope.start ?? (review && !resumed ? scopeIds.find((id) => need(id) > 0) : undefined);
   // A clicked question always opens first. If it can count now (never tried, or spaced out
   // enough since its last try) it is a new try; otherwise its last try is shown, with the
   // answer and explanation, and nothing is recorded.
   let first: string | null;
   let firstPast = false;
-  if (scope.start && byId.has(scope.start)) {
+  if (opener && byId.has(opener)) {
     const h = hooks();
-    first = startWith(engine, scope.start, h);
+    first = startWith(engine, opener, h);
     const r = readiness(s, Date.now());
     firstPast = !!r.last(first) && (need(first) <= 0 || r.wait(first) > 0);
   } else {
     first = nextQuestion(engine, hooks());
   }
   const firstMixed = !!engine.active.find((slot) => slot.id === first)?.filler;
-  return { engine, mode, scopeIds, first, firstPast, firstMixed, tally, need, hooks };
+  return { engine, mode, scopeIds, first, firstPast, firstMixed, tally, need, hooks, reviewedRight };
 }
 
 export function Runner() {
@@ -121,7 +135,7 @@ export function Runner() {
 function Session({ scope }: { scope: Scope }) {
   const state = useStore();
   const [init] = useState(() => initSession(scope));
-  const { engine, mode, scopeIds, need, hooks } = init;
+  const { engine, mode, scopeIds, need, hooks, reviewedRight } = init;
 
   const [current, setCurrent] = useState<string | null>(init.first);
   const [past, setPast] = useState(init.firstPast);
@@ -255,6 +269,7 @@ function Session({ scope }: { scope: Scope }) {
         setFirstKey(key);
         setFirstOk(ok);
         const after = qs(getState(), current).c;
+        if (ok) reviewedRight.add(current);
         recordAnswer(engine, current, ok, after, need(current));
         const mastered = before < TARGET && after >= TARGET;
         const next: Tally = { answered: tally.answered + 1, correct: tally.correct + (ok ? 1 : 0), mastered: tally.mastered + (mastered ? 1 : 0) };
@@ -296,7 +311,7 @@ function Session({ scope }: { scope: Scope }) {
       setShowWhy(false);
       setPhase("feedback");
     },
-    [phase, past, tries, firstMs, firstKey, firstOk, pastMiss, current, data, paused, clockState, mode, engine, need, tally, scope],
+    [phase, past, tries, firstMs, firstKey, firstOk, pastMiss, current, data, paused, clockState, mode, engine, need, tally, scope, reviewedRight],
   );
 
   /** Show the answer and explanation. Only ever on request. */
@@ -331,6 +346,8 @@ function Session({ scope }: { scope: Scope }) {
   const advance = useCallback(() => {
     // from the result, or straight on once a first try is in (without revealing)
     if (phase !== "feedback" && !(phase === "answer" && (tries.length > 0 || firstKey))) return;
+    // in a review list, a mastered question seen again (or solved) is reviewed: don't bring it back
+    if (current && (past || result?.ok) && (getState().q[current]?.c ?? 0) >= TARGET) reviewedRight.add(current);
     const next = nextQuestion(engine, hooks());
     setResult(null);
     setTries([]);
@@ -359,7 +376,7 @@ function Session({ scope }: { scope: Scope }) {
     setPhase("loading");
     setCurrent(next);
     setTurn((t) => t + 1);
-  }, [phase, tries, firstKey, engine, hooks, scope]);
+  }, [phase, tries, firstKey, current, past, result, reviewedRight, engine, hooks, scope]);
 
   // After answering, only the Next question button (or a deliberate Enter) moves on. Clicks,
   // Space, and arrow keys never do. Enter is ignored while held, right after answering (so the

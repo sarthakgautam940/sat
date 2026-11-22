@@ -31,7 +31,7 @@ export function BankView() {
         mastered++;
         if (!p.h) unchecked++;
       } else if (p.n > 0) started++;
-      if (p.w > 0) missed++;
+      if (p.lw) missed++;
       if (p.bm) marked++;
     }
     return { mastered, started, missed, marked, unchecked };

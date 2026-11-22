@@ -80,7 +80,8 @@ export function poolFor(scope: Scope, state: State): string[] {
       list = ORDER.filter((q) => subKeyOf(q) === scope.value);
       break;
     case "missed":
-      list = ORDER.filter((q) => (p(q.id)?.w ?? 0) > 0).sort((a, b) => (p(b.id)?.w ?? 0) - (p(a.id)?.w ?? 0));
+      // the questions whose last try is still a miss (red), most-missed first
+      list = ORDER.filter((q) => p(q.id)?.lw).sort((a, b) => (p(b.id)?.w ?? 0) - (p(a.id)?.w ?? 0));
       break;
     case "bookmarked":
       list = ORDER.filter((q) => p(q.id)?.bm);
