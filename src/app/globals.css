@@ -468,6 +468,11 @@ button.row {
   border-color: var(--bad);
   color: #fff;
 }
+.tile .badge.ok {
+  background: var(--good);
+  border-color: var(--good);
+  color: #fff;
+}
 .legend {
   display: flex;
   flex-wrap: wrap;
@@ -888,6 +893,10 @@ button.row {
 }
 .feedback[data-ok="0"] .fb-head {
   background: var(--bad-soft);
+}
+.fb-head > .link {
+  flex: none;
+  white-space: nowrap;
 }
 .fb-title {
   font-weight: 800;

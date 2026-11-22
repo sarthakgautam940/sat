@@ -103,3 +103,19 @@ export function poolFor(scope: Scope, state: State): string[] {
   if (scope.start && ids.includes(scope.start)) return [scope.start, ...ids.filter((id) => id !== scope.start)];
   return ids;
 }
+
+/**
+ * Questions from outside a set, to mix in while everything left in the set is waiting for
+ * its spacing: the same topic first, then the same section, then the rest, with questions
+ * already started ahead of new ones. Mastered questions are left out.
+ */
+export function fillersFor(scope: Scope, state: State): string[] {
+  const inSet = new Set(poolFor({ ...scope, start: undefined }, state));
+  const anchor = ORDER.find((q) => inSet.has(q.id));
+  if (!anchor) return [];
+  const p = (id: string) => state.q[id];
+  const rank = (q: QMeta) => (q.section !== anchor.section ? 4 : q.category !== anchor.category ? 2 : 0) + ((p(q.id)?.n ?? 0) > 0 ? 0 : 1);
+  return ORDER.filter((q) => !inSet.has(q.id) && (p(q.id)?.c ?? 0) < TARGET)
+    .sort((a, b) => rank(a) - rank(b))
+    .map((q) => q.id);
+}

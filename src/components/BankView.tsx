@@ -43,7 +43,7 @@ export function BankView() {
         <div>
           <h1 className="title">Question bank</h1>
           <p className="subtitle">
-            {counts.mastered} of 481 mastered, {counts.started} in progress. A tile darkens with each correct answer and turns solid at 5 of 5.
+            {counts.mastered} of 481 mastered, {counts.started} in progress. A tile darkens with each correct answer and turns solid at 5 of 5. Its corner shows how your last try went.
           </p>
         </div>
         <div className="seg" role="group" aria-label="Section">
@@ -157,13 +157,14 @@ function QTile({ id, subKey, st, big }: { id: string; subKey: string; st: State;
       title={`${name}: ${q.pattern}${p ? `. ${m} of ${TARGET} correct${p.w ? `, missed ${p.w}` : ""}` : ""}`}
     >
       {name}
-      {m >= TARGET ? (
-        <span className="badge">
-          <IconCheck size={11} strokeWidth={3} />
-        </span>
-      ) : p?.lw ? (
+      {/* how the last try went: a green check or a red X */}
+      {p?.lw ? (
         <span className="badge miss">
           <IconX size={11} strokeWidth={3} />
+        </span>
+      ) : p && p.n > 0 ? (
+        <span className="badge ok">
+          <IconCheck size={11} strokeWidth={3} />
         </span>
       ) : null}
     </Link>

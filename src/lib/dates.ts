@@ -38,3 +38,20 @@ export function clock(ms: number): string {
   const m = Math.floor(s / 60);
   return `${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
+
+/** "just now", "5 minutes ago", "2 hours ago", "yesterday", "3 days ago". */
+export function ago(ms: number): string {
+  const min = Math.floor(ms / 60000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} ${min === 1 ? "minute" : "minutes"} ago`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h} ${h === 1 ? "hour" : "hours"} ago`;
+  const d = Math.floor(h / 24);
+  return d === 1 ? "yesterday" : `${d} days ago`;
+}
+
+/** "45 minutes", "1 minute". */
+export function minutes(ms: number): string {
+  const m = Math.max(1, Math.ceil(ms / 60000));
+  return `${m} ${m === 1 ? "minute" : "minutes"}`;
+}

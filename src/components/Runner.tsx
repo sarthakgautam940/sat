@@ -9,12 +9,12 @@ import { DesmosPanel } from "./Desmos";
 import { IconArrowLeft, IconArrowRight, IconBookmark, IconBulb, IconCalc, IconCheck, IconEye, IconPause, IconPlay, IconSheet, IconStrike, IconX } from "./icons";
 import { byId, label, subByKey, subKeyOf, teach, type Teach } from "@/lib/bank";
 import { checkGridIn, cleanGridInput } from "@/lib/answer";
-import { createEngine, nextQuestion, recordAnswer, remaining, startWith, TARGET, type Engine } from "@/lib/engine";
+import { createEngine, nextQuestion, recordAnswer, remainingInSet, startWith, TARGET, type Engine, type Hooks } from "@/lib/engine";
 import { loadQuestion, type QData } from "@/lib/data";
-import { needFor, recordAttempt, toggleBookmark, type Mode } from "@/lib/progress";
-import { modeOf, poolFor, scopeFromParams } from "@/lib/scope";
+import { needFor, readiness, recordAttempt, toggleBookmark, type Mode } from "@/lib/progress";
+import { fillersFor, modeOf, poolFor, scopeFromParams, scopeHref } from "@/lib/scope";
 import { DEFAULT_SETTINGS, getState, qs, update, useHydrated, useStore, type Scope } from "@/lib/store";
-import { clock } from "@/lib/dates";
+import { ago, clock, minutes } from "@/lib/dates";
 
 /** The calculator can take from a quarter of the window up to 70 percent of it. */
 const CALC_MIN = 0.25;
@@ -23,39 +23,67 @@ function clampCalc(f: number) {
   return Math.min(CALC_MAX, Math.max(CALC_MIN, Number.isFinite(f) ? f : DEFAULT_SETTINGS.calcWidth));
 }
 
-type Phase = "loading" | "answer" | "feedback" | "done" | "empty";
-type Result = { ok: boolean; response: string; before: number; after: number; mastered: boolean; ms: number };
+type Phase = "loading" | "answer" | "feedback" | "done" | "empty" | "waiting";
+/** When the feedback shows a past try (a question opened before it can count again). */
+type Past = { ago: string; wait: number; msLeft: number };
+type Result = { ok: boolean; response: string; before: number; after: number; mastered: boolean; ms: number; past?: Past };
 type Tally = { answered: number; correct: number; mastered: number };
 
 function sameScope(a: Scope, b: Scope) {
   return a.kind === b.kind && (a.value ?? "") === (b.value ?? "");
 }
 
-type Init = { engine: Engine; mode: Mode; review: Set<string>; scopeIds: string[]; first: string | null; tally: Tally; need: (id: string) => number };
+type Init = {
+  engine: Engine;
+  mode: Mode;
+  scopeIds: string[];
+  first: string | null;
+  /** the first question is shown as its last try, not as a new one */
+  firstPast: boolean;
+  /** the first question was mixed in from outside the set */
+  firstMixed: boolean;
+  tally: Tally;
+  need: (id: string) => number;
+  hooks: () => Hooks;
+};
 
 /** Build or resume the session from saved progress (runs once, on the client). */
 function initSession(scope: Scope): Init {
   const s = getState();
   const mode = modeOf(scope);
-  const review = new Set<string>();
   const scopeIds = poolFor(scope, s);
-  const need = (id: string) => {
-    const left = needFor(getState(), id, mode);
-    return left > 0 ? left : review.has(id) ? 1 : 0;
+  const need = (id: string) => needFor(getState(), id, mode);
+  // Spacing comes from the saved answer log, so it holds across sessions and tile clicks.
+  // While the whole set is waiting, questions from nearby topics are mixed in (learning only).
+  const extra = mode === "learn" ? fillersFor(scope, s) : [];
+  const hooks = (): Hooks => {
+    const r = readiness(getState(), Date.now());
+    return { need, wait: r.wait, extra: () => extra };
   };
-  if (scope.start && needFor(s, scope.start, mode) <= 0) review.add(scope.start);
   const saved = s.session;
   let engine: Engine;
   let tally: Tally = { answered: 0, correct: 0, mastered: 0 };
-  if (saved && sameScope(saved.scope, scope) && !scope.start && remaining(saved.engine) > 0) {
+  if (saved && sameScope(saved.scope, scope) && !scope.start && remainingInSet(saved.engine) > 0) {
     engine = saved.engine;
     tally = { answered: saved.answered, correct: saved.correct, mastered: 0 };
   } else {
     engine = createEngine(scopeIds, need);
   }
-  // a clicked question always opens first; otherwise the scheduler picks
-  const first = scope.start && byId.has(scope.start) ? startWith(engine, scope.start, need) : nextQuestion(engine, need);
-  return { engine, mode, review, scopeIds, first, tally, need };
+  // A clicked question always opens first. If it can count now (never tried, or spaced out
+  // enough since its last try) it is a new try; otherwise its last try is shown, with the
+  // answer and explanation, and nothing is recorded.
+  let first: string | null;
+  let firstPast = false;
+  if (scope.start && byId.has(scope.start)) {
+    const h = hooks();
+    first = startWith(engine, scope.start, h);
+    const r = readiness(s, Date.now());
+    firstPast = !!r.last(first) && (need(first) <= 0 || r.wait(first) > 0);
+  } else {
+    first = nextQuestion(engine, hooks());
+  }
+  const firstMixed = !!engine.active.find((slot) => slot.id === first)?.filler;
+  return { engine, mode, scopeIds, first, firstPast, firstMixed, tally, need, hooks };
 }
 
 export function Runner() {
@@ -70,12 +98,14 @@ export function Runner() {
 function Session({ scope }: { scope: Scope }) {
   const state = useStore();
   const [init] = useState(() => initSession(scope));
-  const { engine, mode, review, scopeIds, need } = init;
+  const { engine, mode, scopeIds, need, hooks } = init;
 
   const [current, setCurrent] = useState<string | null>(init.first);
+  const [past, setPast] = useState(init.firstPast);
+  const [mixed, setMixed] = useState(init.firstMixed);
   const [turn, setTurn] = useState(0);
   const [data, setData] = useState<QData | null>(null);
-  const [phase, setPhase] = useState<Phase>(init.first ? "loading" : "empty");
+  const [phase, setPhase] = useState<Phase>(init.first ? "loading" : remainingInSet(engine) > 0 ? "waiting" : "empty");
   const [result, setResult] = useState<Result | null>(null);
   const [struck, setStruck] = useState<Set<string>>(new Set());
   const [grid, setGrid] = useState("");
@@ -124,6 +154,20 @@ function Session({ scope }: { scope: Scope }) {
     loadQuestion(current).then((q) => {
       if (!alive) return;
       setData(q);
+      if (past) {
+        // opened before it can count again: show the last try instead of a new one
+        const s = getState();
+        const r = readiness(s, Date.now());
+        const last = r.last(current);
+        if (last) {
+          const c = qs(s, current).c;
+          setResult({ ok: last.ok, response: last.response, before: c, after: c, mastered: false, ms: last.ms, past: { ago: ago(Date.now() - last.at), wait: r.wait(current), msLeft: r.msLeft(current) } });
+          setShowWhy(!last.ok);
+          setPhase("feedback");
+          window.scrollTo({ top: 0 });
+          return;
+        }
+      }
       setPhase("answer");
       const t = performance.now();
       setClockState({ start: t, pausedMs: 0, pauseAt: 0 });
@@ -135,7 +179,7 @@ function Session({ scope }: { scope: Scope }) {
     return () => {
       alive = false;
     };
-  }, [current, turn, engine]);
+  }, [current, turn, engine, past]);
 
   // timer
   useEffect(() => {
@@ -153,13 +197,12 @@ function Session({ scope }: { scope: Scope }) {
 
   const answer = useCallback(
     (response: string) => {
-      if (phase !== "answer" || !current || !data || paused) return;
+      if (phase !== "answer" || past || !current || !data || paused) return;
       const ok = data.type === "mc" ? response === data.answer : checkGridIn(response, data.answer as string[]);
       const ms = performance.now() - clockState.start - clockState.pausedMs;
       const before = qs(getState(), current).c;
       recordAttempt(current, ok, ms, response, mode);
       const after = qs(getState(), current).c;
-      if (ok) review.delete(current);
       recordAnswer(engine, current, ok, after, need(current));
       const mastered = before < TARGET && after >= TARGET;
       const next: Tally = { answered: tally.answered + 1, correct: tally.correct + (ok ? 1 : 0), mastered: tally.mastered + (mastered ? 1 : 0) };
@@ -171,29 +214,35 @@ function Session({ scope }: { scope: Scope }) {
       setShowWhy(!ok);
       setPhase("feedback");
     },
-    [phase, current, data, paused, clockState, mode, review, engine, need, tally, scope],
+    [phase, past, current, data, paused, clockState, mode, engine, need, tally, scope],
   );
 
   const advance = useCallback(() => {
     if (phase !== "feedback") return;
-    const next = nextQuestion(engine, need);
+    const next = nextQuestion(engine, hooks());
     setResult(null);
     setStruck(new Set());
     setGrid("");
     setShowWhy(false);
+    setPast(false);
     if (!next) {
       setCurrent(null);
       setData(null);
-      setPhase("done");
-      update((s) => {
-        if (s.session && sameScope(s.session.scope, scope)) s.session = null;
-      });
+      // either the set is complete, or everything left is waiting for its spacing
+      const waiting = remainingInSet(engine) > 0;
+      setPhase(waiting ? "waiting" : "done");
+      if (!waiting) {
+        update((s) => {
+          if (s.session && sameScope(s.session.scope, scope)) s.session = null;
+        });
+      }
       return;
     }
+    setMixed(!!engine.active.find((slot) => slot.id === next)?.filler);
     setPhase("loading");
     setCurrent(next);
     setTurn((t) => t + 1);
-  }, [phase, engine, need, scope]);
+  }, [phase, engine, hooks, scope]);
 
   // After answering, only the Next question button (or a deliberate Enter) moves on. Clicks,
   // Space, and arrow keys never do. Enter is ignored while held, right after answering (so the
@@ -288,6 +337,8 @@ function Session({ scope }: { scope: Scope }) {
         <main className="qpane">
           {phase === "empty" ? (
             <EmptySet scope={scope} />
+          ) : phase === "waiting" ? (
+            <Waiting scope={scope} />
           ) : phase === "done" ? (
             <Done tally={tally} />
           ) : (
@@ -304,8 +355,9 @@ function Session({ scope }: { scope: Scope }) {
                     <div className="muted qcat">
                       {meta.section === "math" ? "Math" : "Reading and Writing"}, {meta.category}
                     </div>
+                    {mixed ? <div className="muted qcat">Mixed in while the questions in {scope.label} wait their turn</div> : null}
                   </div>
-                  <Pips c={p?.c ?? 0} pop={result?.ok ? result.after : -1} />
+                  <Pips c={p?.c ?? 0} pop={result?.ok && !result.past ? result.after : -1} />
                   <button className="icon-btn" aria-pressed={!!p?.bm} onClick={() => current && toggleBookmark(current)} aria-label={p?.bm ? "Remove bookmark" : "Bookmark"} title="Bookmark">
                     <IconBookmark filled={!!p?.bm} />
                   </button>
@@ -419,7 +471,7 @@ function Session({ scope }: { scope: Scope }) {
                   <div className="nextbar">
                     <span className="muted nextbar-hint">or press Enter</span>
                     <button className="btn" onClick={advance}>
-                      {remaining(engine) ? "Next question" : "Finish set"}
+                      {remainingInSet(engine) ? "Next question" : "Finish set"}
                       <IconArrowRight size={18} />
                     </button>
                   </div>
@@ -513,9 +565,7 @@ function Feedback({
       <div className="fb-head">
         <div>
           <div className="fb-title">{result.ok ? (result.mastered ? "Correct. Mastered." : "Correct.") : "Not this time."}</div>
-          <div className="muted">
-            {result.ok ? `${Math.min(result.after, TARGET)} of ${TARGET} toward mastery.` : `${correctText} It still counts ${Math.min(result.after, TARGET)} of ${TARGET}, and it will come back in a few questions.`}
-          </div>
+          <div className="muted">{result.past ? pastNote(result, result.past, correctText) : result.ok ? `${Math.min(result.after, TARGET)} of ${TARGET} toward mastery.` : `${correctText} It still counts ${Math.min(result.after, TARGET)} of ${TARGET}, and it will come back in a few questions.`}</div>
         </div>
         {result.ok && !showWhy ? (
           <button className="link" onClick={() => setShowWhy(true)}>
@@ -556,6 +606,19 @@ function Feedback({
   );
 }
 
+/** What the feedback says when it shows a past try instead of a new one. */
+function pastNote(result: Result, past: Past, correctText: string): string {
+  const c = Math.min(result.after, TARGET);
+  const when = `You answered this ${past.ago}.`;
+  if (c >= TARGET) return `${when} Mastered, ${TARGET} of ${TARGET}.`;
+  const answer = result.ok ? "" : ` ${correctText}`;
+  const next =
+    past.wait > 0
+      ? ` Your next try counts after ${past.wait} other ${past.wait === 1 ? "question" : "questions"}, or in ${minutes(past.msLeft)}.`
+      : " It is ready for another try.";
+  return `${when}${answer} ${c} of ${TARGET} toward mastery.${next}`;
+}
+
 function Done({ tally }: { tally: { answered: number; correct: number; mastered: number } }) {
   const pct = tally.answered ? Math.round((tally.correct / tally.answered) * 100) : 0;
   return (
@@ -566,6 +629,27 @@ function Done({ tally }: { tally: { answered: number; correct: number; mastered:
       </p>
       <div style={{ display: "flex", gap: 10, marginTop: 24, flexWrap: "wrap" }}>
         <Link className="btn" href="/">
+          Question bank
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function Waiting({ scope }: { scope: Scope }) {
+  return (
+    <div className="done">
+      <h1 className="title">Nothing here can count yet</h1>
+      <p className="subtitle">
+        Every question left in {scope.label} was tried too recently. A try only counts toward mastery after a few other questions in between (or about an hour), so these are waiting their turn.
+      </p>
+      <div style={{ display: "flex", gap: 10, marginTop: 24, flexWrap: "wrap" }}>
+        {scope.kind !== "all" && scope.kind !== "harden" ? (
+          <Link className="btn" href={scopeHref({ kind: "all" })}>
+            Practice all questions
+          </Link>
+        ) : null}
+        <Link className={scope.kind !== "all" && scope.kind !== "harden" ? "btn btn-ghost" : "btn"} href="/">
           Question bank
         </Link>
       </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { TARGET } from "./engine";
+import { gapAfter, TARGET } from "./engine";
 import { qs, update, type State } from "./store";
 
 export type Mode = "learn" | "harden";
@@ -56,4 +56,42 @@ export function toggleBookmark(id: string) {
     else q.bm = 1;
     s.q[id] = q;
   });
+}
+
+/** A question also becomes ready again once this much time has passed since its last try. */
+export const READY_AFTER_MS = 60 * 60 * 1000;
+
+export type LastTry = { index: number; at: number; ok: boolean; response: string; ms: number };
+
+export type Readiness = {
+  /** The question's last try, or null if it was never tried. */
+  last: (id: string) => LastTry | null;
+  /** Answers to other questions still needed before it may be tried again (0 when ready). */
+  wait: (id: string) => number;
+  /** Time until it is ready anyway (0 when ready). */
+  msLeft: (id: string) => number;
+};
+
+/**
+ * How soon each question may be tried again, from the answer log, so it holds across
+ * sessions, reloads, and tile clicks: after a try, a question needs gapAfter() other answers
+ * in between (2 after a miss; 3, 5, 8, then 12 after correct answers) or an hour.
+ */
+export function readiness(state: State, now: number): Readiness {
+  const tries = new Map<string, LastTry>();
+  state.log.forEach(([at, id, ok, ms, response], index) => tries.set(id, { index, at, ok: ok === 1, response, ms }));
+  const total = state.log.length;
+  const left = (t: LastTry) => Math.max(0, t.at + READY_AFTER_MS - now);
+  return {
+    last: (id) => tries.get(id) ?? null,
+    wait: (id) => {
+      const t = tries.get(id);
+      if (!t || left(t) === 0) return 0;
+      return Math.max(0, gapAfter(t.ok, qs(state, id).c) - (total - 1 - t.index));
+    },
+    msLeft: (id) => {
+      const t = tries.get(id);
+      return t ? left(t) : 0;
+    },
+  };
 }
