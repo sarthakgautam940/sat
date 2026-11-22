@@ -65,7 +65,7 @@ export function StatsView() {
             const hc = (d.correct / max) * 140;
             return (
               <g key={d.day}>
-                <rect x={x} y={150 - h} width={34} height={h} rx={5} fill="var(--soft-2)" />
+                <rect x={x} y={150 - h} width={34} height={h} rx={5} fill="var(--line-strong)" />
                 <rect x={x} y={150 - hc} width={34} height={hc} rx={5} fill="var(--ink)" />
                 {d.attempts ? (
                   <text x={x + 17} y={144 - h} textAnchor="middle" fontSize="12" fill="var(--ink-2)" className="tnum">
@@ -85,7 +85,7 @@ export function StatsView() {
             Correct
           </span>
           <span>
-            <i style={{ background: "var(--soft-2)", borderColor: "var(--line-strong)" }} />
+            <i style={{ background: "var(--line-strong)", borderColor: "var(--ink-4)" }} />
             All answers
           </span>
         </div>

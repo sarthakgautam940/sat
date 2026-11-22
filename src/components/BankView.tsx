@@ -43,7 +43,7 @@ export function BankView() {
         <div>
           <h1 className="title">Question bank</h1>
           <p className="subtitle">
-            {counts.mastered} of 481 mastered, {counts.started} in progress. A tile darkens with each correct answer and turns solid at 5 of 5. Its corner shows how your last try went.
+            {counts.mastered} of 481 mastered, {counts.started} in progress. A tile brightens with each correct answer and turns solid white at 5 of 5. Its corner shows how your last try went.
           </p>
         </div>
         <div className="seg" role="group" aria-label="Section">

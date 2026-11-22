@@ -50,6 +50,8 @@ export function DesmosPanel({ visible }: { visible: boolean }) {
           settingsMenu: true,
           zoomButtons: true,
           border: false,
+          // white on black, to match the app
+          invertedColors: true,
         });
       })
       .catch(() => setError(true));

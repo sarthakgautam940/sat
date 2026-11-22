@@ -17,10 +17,10 @@ export function Logo() {
   // four question tiles, one mastered
   return (
     <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden>
-      <rect x="1.5" y="1.5" width="10" height="10" rx="3" fill="#111" />
-      <rect x="14.5" y="1.5" width="10" height="10" rx="3" fill="none" stroke="#111" strokeWidth="2" />
-      <rect x="1.5" y="14.5" width="10" height="10" rx="3" fill="none" stroke="#111" strokeWidth="2" />
-      <rect x="14.5" y="14.5" width="10" height="10" rx="3" fill="none" stroke="#111" strokeWidth="2" />
+      <rect x="1.5" y="1.5" width="10" height="10" rx="3" fill="currentColor" />
+      <rect x="14.5" y="1.5" width="10" height="10" rx="3" fill="none" stroke="currentColor" strokeWidth="2" />
+      <rect x="1.5" y="14.5" width="10" height="10" rx="3" fill="none" stroke="currentColor" strokeWidth="2" />
+      <rect x="14.5" y="14.5" width="10" height="10" rx="3" fill="none" stroke="currentColor" strokeWidth="2" />
     </svg>
   );
 }
