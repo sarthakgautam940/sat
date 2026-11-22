@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { applyAttempt, replayLog } from "./progress";
+import { applyAttempt, countsRight, replayLog } from "./progress";
 import { cleanCode, formatCode, mergeStates, newCode, sameState, validCode } from "./sync";
-import { DEFAULT_SETTINGS, type LogRow, type QS, type State } from "./store";
+import { DEFAULT_SETTINGS, type LogRow, type Mark, type QS, type State } from "./store";
 
 /** A device: answers go through the same rule the app uses, and into the log. */
 function device(gen = "", genAt = 0): State {
@@ -100,6 +100,49 @@ describe("sync", () => {
     const m = mergeStates(newPhone, server, true);
     expect(Object.keys(m.q).sort()).toEqual(["a", "b"]);
     expect(m.gen).toBe("g1");
+  });
+
+  it("a miss fixed without revealing counts as right in stats but not toward mastery", () => {
+    const s = device();
+    answer(s, "a", false, 1000);
+    const marks: Record<string, Mark> = { "1000|a": { fixed: 1, at: 1100 } };
+    const q = replayLog(s.log, marks).a;
+    expect(q.c).toBe(0);
+    expect(q.w).toBe(0);
+    expect(q.lw).toBeUndefined();
+    expect(q.f).toBe(1);
+    // revealed first: it stays a miss
+    expect(replayLog(s.log, { "1000|a": { fixed: 1, revealed: 1, at: 1100 } }).a.w).toBe(1);
+    expect(countsRight(false, { revealed: 1, at: 1 })).toBe(false);
+  });
+
+  it("marking for study counts it as a miss in stats, even when it was right", () => {
+    const s = device();
+    answer(s, "a", true, 1000);
+    const q = replayLog(s.log, { "1000|a": { study: 1, at: 1100 } }).a;
+    expect(q.c).toBe(1);
+    expect(q.w).toBe(1);
+    expect(q.lw).toBe(1);
+    // unmarking restores it
+    expect(replayLog(s.log, { "1000|a": { study: 0, at: 1200 } }).a.w).toBe(0);
+    // a fixed miss marked for study is a miss again
+    expect(countsRight(false, { fixed: 1, study: 1, at: 1 })).toBe(false);
+  });
+
+  it("carries fixes and study marks across devices, the later change winning", () => {
+    const laptop = device();
+    answer(laptop, "a", false, 1000);
+    const phone = structuredClone(laptop);
+    laptop.marks = { "1000|a": { fixed: 1, at: 2000 } };
+    laptop.at = 2000;
+    let m = mergeStates(phone, laptop);
+    expect(m.q.a.w).toBe(0);
+    expect(sameState(m, phone)).toBe(false);
+    phone.marks = { "1000|a": { fixed: 1, study: 1, at: 3000 } };
+    phone.at = 3000;
+    m = mergeStates(laptop, phone);
+    expect(m.q.a.w).toBe(1);
+    expect(m.marks?.["1000|a"].study).toBe(1);
   });
 
   it("makes codes that are easy to type back in", () => {

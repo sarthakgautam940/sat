@@ -1,6 +1,7 @@
 import { TARGET } from "./engine";
 import { questions, subs, subKeyOf, type SectionKey } from "./bank";
 import { addDays, dayKey } from "./dates";
+import { countsRight, rowKey } from "./progress";
 import type { State } from "./store";
 
 // Analytics derived from the attempt log and per-question progress.
@@ -60,11 +61,14 @@ export function breakdown(state: State): Breakdown {
       }
     }
   }
-  for (const [, id, ok, ms] of state.log) {
+  const marks = state.marks ?? {};
+  for (const row of state.log) {
+    const [, id, ok, ms] = row;
     if (!meta.has(id)) continue;
+    const right = countsRight(ok === 1, marks[rowKey(row)]);
     for (const b of buckets(id)) {
       b.attempts++;
-      if (ok) b.correct++;
+      if (right) b.correct++;
       b.ms += Math.min(ms, CAP_MS);
     }
   }
@@ -80,11 +84,13 @@ export function daily(state: State, days = 14, now = Date.now()): DayStat[] {
     const d = addDays(today, -i);
     map.set(d, { day: d, attempts: 0, correct: 0, ms: 0 });
   }
-  for (const [t, , ok, ms] of state.log) {
+  const marks = state.marks ?? {};
+  for (const row of state.log) {
+    const [t, , ok, ms] = row;
     const r = map.get(dayKey(t));
     if (!r) continue;
     r.attempts++;
-    if (ok) r.correct++;
+    if (countsRight(ok === 1, marks[rowKey(row)])) r.correct++;
     r.ms += Math.min(ms, CAP_MS);
   }
   return [...map.values()];

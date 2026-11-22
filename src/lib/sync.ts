@@ -2,7 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { replayLog } from "./progress";
-import { applySyncedState, getState, normalizeState, subscribe, type LogRow, type QS, type State } from "./store";
+import { applySyncedState, getState, normalizeState, subscribe, type LogRow, type Mark, type QS, type State } from "./store";
 
 // Sync across devices.
 //
@@ -33,8 +33,13 @@ function bookmarkKey(s: State): string {
 }
 
 /** Whether two states hold the same progress (cheap: they share history up to these markers). */
+function marksKey(s: State): string {
+  const m = Object.values(s.marks ?? {});
+  return `${m.length}:${Math.max(0, ...m.map((x) => x.at))}`;
+}
+
 export function sameState(a: State, b: State): boolean {
-  return (a.gen ?? "") === (b.gen ?? "") && (a.at ?? 0) === (b.at ?? 0) && a.log.length === b.log.length && bookmarkKey(a) === bookmarkKey(b);
+  return (a.gen ?? "") === (b.gen ?? "") && (a.at ?? 0) === (b.at ?? 0) && a.log.length === b.log.length && bookmarkKey(a) === bookmarkKey(b) && marksKey(a) === marksKey(b);
 }
 
 /**
@@ -56,7 +61,10 @@ export function mergeStates(local: State, remote: State, join = false): State {
     log.push(row);
   }
   log.sort((x, y) => x[0] - y[0]);
-  const q: Record<string, QS> = replayLog(log);
+  // how each first try turned out: the later note wins
+  const marks: Record<string, Mark> = { ...(remote.marks ?? {}) };
+  for (const [k, m] of Object.entries(local.marks ?? {})) if (!marks[k] || m.at > marks[k].at) marks[k] = m;
+  const q: Record<string, QS> = replayLog(log, marks);
   // bookmarks: the later change wins; without times (older data) a bookmark on either side stands
   for (const id of new Set([...Object.keys(local.q), ...Object.keys(remote.q)])) {
     const l = local.q[id];
@@ -73,6 +81,7 @@ export function mergeStates(local: State, remote: State, join = false): State {
     v: 1,
     q,
     log,
+    marks,
     settings: newer.settings,
     session: newer.session,
     at: Math.max(local.at ?? 0, remote.at ?? 0),

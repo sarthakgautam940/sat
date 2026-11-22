@@ -11,7 +11,7 @@ import { byId, label, subByKey, subKeyOf, teach, type Teach } from "@/lib/bank";
 import { checkGridIn, cleanGridInput } from "@/lib/answer";
 import { createEngine, gapAfter, nextQuestion, recordAnswer, remainingInSet, startWith, TARGET, type Engine, type Hooks } from "@/lib/engine";
 import { loadQuestion, type QData } from "@/lib/data";
-import { needFor, readiness, recordAttempt, toggleBookmark, type Mode } from "@/lib/progress";
+import { needFor, readiness, recordAttempt, setMark, toggleBookmark, type Mode } from "@/lib/progress";
 import { fillersFor, modeOf, poolFor, scopeFromParams, scopeHref } from "@/lib/scope";
 import { DEFAULT_SETTINGS, getState, qs, update, useHydrated, useStore, type Scope } from "@/lib/store";
 import { ago, clock, minutes } from "@/lib/dates";
@@ -26,12 +26,27 @@ function clampCalc(f: number) {
 type Phase = "loading" | "answer" | "feedback" | "done" | "empty" | "waiting";
 /** When the feedback shows a past try (a question opened before it can count again). */
 type Past = { ago: string; wait: number; msLeft: number };
+/** A recent miss reopened for more tries: its log key, and whether its answer was revealed. */
+type PastMiss = Past & { key: string; revealed: boolean };
 /**
  * How a question's showing ended. first: the first try, which is the one that counts.
  * retry: solved on a later try (after a miss, or on a question opened before it can count
  * again), which never counts. reveal: the solution was revealed.
  */
-type Result = { ok: boolean; response: string; before: number; after: number; mastered: boolean; ms: number; past?: Past; how: "first" | "retry" | "reveal" };
+type Result = {
+  ok: boolean;
+  response: string;
+  before: number;
+  after: number;
+  mastered: boolean;
+  ms: number;
+  past?: Past;
+  how: "first" | "retry" | "reveal";
+  /** the log key of the first try this result is about (for marking it) */
+  key?: string;
+  /** a retry that turned the earlier miss green in stats */
+  fixed?: boolean;
+};
 type Tally = { answered: number; correct: number; mastered: number };
 
 function sameScope(a: Scope, b: Scope) {
@@ -115,8 +130,9 @@ function Session({ scope }: { scope: Scope }) {
   // wrong answers tried in this showing; the question stays open until it's solved or revealed
   const [tries, setTries] = useState<string[]>([]);
   // set when a question missed recently is reopened for more tries (they don't count yet)
-  const [pastMiss, setPastMiss] = useState<Past | null>(null);
+  const [pastMiss, setPastMiss] = useState<PastMiss | null>(null);
   const [firstMs, setFirstMs] = useState(0);
+  const [firstKey, setFirstKey] = useState<string | null>(null);
   const [struck, setStruck] = useState<Set<string>>(new Set());
   const [grid, setGrid] = useState("");
   const [calc, setCalc] = useState(false);
@@ -172,8 +188,14 @@ function Session({ scope }: { scope: Scope }) {
         if (last) {
           const c = qs(s, current).c;
           const info: Past = { ago: ago(Date.now() - last.at), wait: r.wait(current), msLeft: r.msLeft(current) };
-          if (last.ok) {
-            setResult({ ok: true, response: last.response, before: c, after: c, mastered: false, ms: last.ms, past: info, how: "first" });
+          const key = `${last.at}|${current}`;
+          const mark = s.marks?.[key];
+          const fixed = !last.ok && !!mark?.fixed && !mark.revealed;
+          if (last.ok || fixed) {
+            // right, or a miss already fixed: show it solved (an earlier wrong pick stays red)
+            if (fixed) setTries([last.response]);
+            const right = last.ok ? last.response : q.type === "mc" ? (q.answer as string) : (q.answer as string[])[0];
+            setResult({ ok: true, response: right, before: c, after: c, mastered: false, ms: last.ms, past: info, how: last.ok ? "first" : "retry", key, fixed });
             setShowWhy(false);
             setPhase("feedback");
             window.scrollTo({ top: 0 });
@@ -182,7 +204,7 @@ function Session({ scope }: { scope: Scope }) {
           // a recent miss: open it for more tries with that miss marked, answer still hidden
           setTries([last.response]);
           if (q.type !== "mc") setGrid(last.response);
-          setPastMiss(info);
+          setPastMiss({ ...info, key, revealed: !!mark?.revealed });
         }
       }
       setPhase("answer");
@@ -222,7 +244,8 @@ function Session({ scope }: { scope: Scope }) {
       // a later try is right, so picking through the choices can never earn mastery.
       if (!past && tries.length === 0) {
         const before = qs(getState(), current).c;
-        recordAttempt(current, ok, ms, response, mode);
+        const key = recordAttempt(current, ok, ms, response, mode);
+        setFirstKey(key);
         const after = qs(getState(), current).c;
         recordAnswer(engine, current, ok, after, need(current));
         const mastered = before < TARGET && after >= TARGET;
@@ -233,7 +256,7 @@ function Session({ scope }: { scope: Scope }) {
         });
         setFirstMs(ms);
         if (ok) {
-          setResult({ ok, response, before, after, mastered, ms, how: "first" });
+          setResult({ ok, response, before, after, mastered, ms, how: "first", key });
           setShowWhy(false);
           setPhase("feedback");
         } else {
@@ -246,19 +269,32 @@ function Session({ scope }: { scope: Scope }) {
         setTries((t) => (t.includes(response) ? t : [...t, response]));
         return;
       }
+      // Fixed without revealing: the miss turns green and counts as right in stats (mastery
+      // still only grows on a clean first try).
+      const key = pastMiss?.key ?? firstKey ?? undefined;
+      const fixed = !!key && !pastMiss?.revealed;
+      if (key && fixed) setMark(key, { fixed: 1 });
+      if (fixed && !pastMiss) {
+        setTally((t) => ({ ...t, correct: t.correct + 1 }));
+        update((s) => {
+          if (s.session && sameScope(s.session.scope, scope)) s.session.correct += 1;
+        });
+      }
       const c = qs(getState(), current).c;
-      setResult({ ok: true, response, before: c, after: c, mastered: false, ms: firstMs || ms, past: pastMiss ?? undefined, how: "retry" });
+      setResult({ ok: true, response, before: c, after: c, mastered: false, ms: firstMs || ms, past: pastMiss ?? undefined, how: "retry", key, fixed });
       setShowWhy(false);
       setPhase("feedback");
     },
-    [phase, past, tries, firstMs, pastMiss, current, data, paused, clockState, mode, engine, need, tally, scope],
+    [phase, past, tries, firstMs, firstKey, pastMiss, current, data, paused, clockState, mode, engine, need, tally, scope],
   );
 
   /** Show the answer and explanation. Only ever on request, after a miss. */
   const reveal = () => {
     if (phase !== "answer" || !current || !data || !tries.length) return;
+    const key = pastMiss?.key ?? firstKey ?? undefined;
+    if (key) setMark(key, { revealed: 1 });
     const c = qs(getState(), current).c;
-    setResult({ ok: false, response: tries[tries.length - 1], before: c, after: c, mastered: false, ms: firstMs, past: pastMiss ?? undefined, how: "reveal" });
+    setResult({ ok: false, response: tries[tries.length - 1], before: c, after: c, mastered: false, ms: firstMs, past: pastMiss ?? undefined, how: "reveal", key });
     setShowWhy(true);
     setPhase("feedback");
   };
@@ -271,6 +307,7 @@ function Session({ scope }: { scope: Scope }) {
     setTries([]);
     setPastMiss(null);
     setFirstMs(0);
+    setFirstKey(null);
     setStruck(new Set());
     setGrid("");
     setShowWhy(false);
@@ -522,7 +559,7 @@ function Session({ scope }: { scope: Scope }) {
               {phase === "answer" && tries.length > 0 && data ? (
                 <>
                   <p className="miss-note" role="status">
-                    <strong>Not quite.</strong> {missNote(pastMiss, Math.min(p?.c ?? 0, TARGET), data.type === "mc" ? [] : tries)}
+                    <strong>Not quite.</strong> {missNote(pastMiss, data.type === "mc" ? [] : tries)}
                   </p>
                   <div className="nextbar">
                     <span className="muted nextbar-hint">Try again, or</span>
@@ -539,7 +576,16 @@ function Session({ scope }: { scope: Scope }) {
 
               {phase === "feedback" && result && data ? (
                 <>
-                  <Feedback result={result} data={data} note={note} showWhy={showWhy} setShowWhy={setShowWhy} subName={sub?.name ?? ""} />
+                  <Feedback
+                    result={result}
+                    data={data}
+                    note={note}
+                    showWhy={showWhy}
+                    setShowWhy={setShowWhy}
+                    subName={sub?.name ?? ""}
+                    studied={!!(result.key && state.marks?.[result.key]?.study)}
+                    onStudy={result.how !== "reveal" && result.key ? () => setMark(result.key!, { study: state.marks?.[result.key!]?.study ? 0 : 1 }) : undefined}
+                  />
                   <div className="nextbar">
                     <span className="muted nextbar-hint">or press Enter</span>
                     <button className="btn" onClick={advance}>
@@ -619,6 +665,8 @@ function Feedback({
   showWhy,
   setShowWhy,
   subName,
+  studied,
+  onStudy,
 }: {
   result: Result;
   data: QData;
@@ -626,6 +674,8 @@ function Feedback({
   showWhy: boolean;
   setShowWhy: (v: boolean) => void;
   subName: string;
+  studied: boolean;
+  onStudy?: () => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -637,13 +687,20 @@ function Feedback({
       <div className="fb-head">
         <div>
           <div className="fb-title">{result.how === "reveal" ? "Solution" : result.mastered ? "Correct. Mastered." : "Correct."}</div>
-          <div className="muted">{resultNote(result, correctText)}</div>
+          <div className="muted">{resultNote(result, correctText, studied)}</div>
         </div>
-        {!showWhy ? (
-          <button className="link" onClick={() => setShowWhy(true)}>
-            Show the explanation
-          </button>
-        ) : null}
+        <div className="fb-actions">
+          {!showWhy ? (
+            <button className="link" onClick={() => setShowWhy(true)}>
+              Show the explanation
+            </button>
+          ) : null}
+          {onStudy ? (
+            <button className="link" aria-pressed={studied} onClick={onStudy} title="Counts this as a miss in your stats and puts it in your Missed list">
+              {studied ? "Marked for study" : "Mark for study"}
+            </button>
+          ) : null}
+        </div>
       </div>
       {showWhy ? (
         <>
@@ -688,23 +745,31 @@ function countsAgain(past: Past): string {
 const MISS_GAP = gapAfter(false, 0);
 
 /** The line under the choices after a miss, while the question is still open. */
-function missNote(pastMiss: Past | null, c: number, typed: string[]): string {
+function missNote(pastMiss: PastMiss | null, typed: string[]): string {
   const tried = typed.length > 1 ? ` Tried so far: ${typed.join(", ")}.` : "";
   const keep = "Try again as many times as you like. The answer stays hidden unless you reveal it.";
-  if (pastMiss) return `You missed this ${pastMiss.ago}. ${keep}${tried} Tries now don't count yet. ${countsAgain(pastMiss)}`;
-  return `${keep}${tried} This one counts as a miss (${c} of ${TARGET}) and comes back after ${MISS_GAP} other questions.`;
+  if (pastMiss?.revealed) return `You missed this ${pastMiss.ago} and revealed the answer, so it stays a miss in your stats. ${keep}${tried} ${countsAgain(pastMiss)}`;
+  if (pastMiss) return `You missed this ${pastMiss.ago}. ${keep}${tried} Fix it now and that miss turns green and counts as right in your stats. ${countsAgain(pastMiss)}`;
+  return `${keep}${tried} Fix it yourself and it turns green and counts as right in your stats; reveal it or move on and it stays a miss.`;
 }
 
+const STUDY = "Marked for study, so it counts as a miss in your stats and shows in your Missed list.";
+
 /** The line in the result box. */
-function resultNote(result: Result, correctText: string): string {
+function resultNote(result: Result, correctText: string, studied: boolean): string {
   const c = Math.min(result.after, TARGET);
   if (result.how === "first") {
-    if (!result.past) return `${c} of ${TARGET} toward mastery.`;
+    const study = studied ? ` ${STUDY}` : "";
+    if (!result.past) return `${c} of ${TARGET} toward mastery.${study}`;
     const when = `You answered this ${result.past.ago}.`;
-    return c >= TARGET ? `${when} Mastered, ${TARGET} of ${TARGET}.` : `${when} ${c} of ${TARGET} toward mastery. ${countsAgain(result.past)}`;
+    return c >= TARGET ? `${when} Mastered, ${TARGET} of ${TARGET}.${study}` : `${when} ${c} of ${TARGET} toward mastery.${study} ${countsAgain(result.past)}`;
   }
-  const after = result.past ? countsAgain(result.past) : `This one counts as a miss (${c} of ${TARGET}) and comes back after ${MISS_GAP} other questions.`;
-  return result.how === "retry" ? `That's it. ${result.past ? "" : "The first try missed, so "}${result.past ? after : after.charAt(0).toLowerCase() + after.slice(1)}` : `${correctText} ${after}`;
+  if (result.how === "retry") {
+    const stats = studied ? STUDY : result.fixed ? "Fixed, so that miss counts as right in your stats." : "The answer was revealed last time, so that miss still counts.";
+    if (result.past) return `${stats} ${countsAgain(result.past)}`;
+    return `${stats} Mastery only grows on a clean first try, so it stays at ${c} of ${TARGET} and comes back after ${MISS_GAP} other questions.`;
+  }
+  return `${correctText} ${result.past ? countsAgain(result.past) : `This one counts as a miss (${c} of ${TARGET}) and comes back after ${MISS_GAP} other questions.`}`;
 }
 
 function Done({ tally }: { tally: { answered: number; correct: number; mastered: number } }) {

@@ -44,10 +44,18 @@ export type Scope = { kind: "all" | "section" | "category" | "sub" | "missed" | 
 
 export type SavedSession = { scope: Scope; engine: Engine; startedAt: number; answered: number; correct: number };
 
+/**
+ * How a recorded first try turned out in the end, keyed by its log row ("time|id"). A miss
+ * fixed later without revealing the answer counts as right in stats; one marked for study
+ * counts as a miss whatever happened. Mastery never reads these: it only counts clean first tries.
+ */
+export type Mark = { fixed?: 1; revealed?: 1; study?: 0 | 1; at: number };
+
 export type State = {
   v: 1;
   q: Record<string, QS>;
   log: LogRow[];
+  marks?: Record<string, Mark>;
   settings: Settings;
   session: SavedSession | null;
   /** last change on any device (ms); the newer state's settings and session win a sync */
@@ -69,7 +77,7 @@ export const DEFAULT_SETTINGS: Settings = {
 const KEY = "sat-bank-v1";
 
 function fresh(): State {
-  return { v: 1, q: {}, log: [], settings: { ...DEFAULT_SETTINGS }, session: null };
+  return { v: 1, q: {}, log: [], marks: {}, settings: { ...DEFAULT_SETTINGS }, session: null };
 }
 
 const EMPTY: State = fresh();

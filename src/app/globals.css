@@ -939,9 +939,18 @@ svg.m,
 .feedback[data-ok="0"] .fb-head {
   background: var(--bad-soft);
 }
-.fb-head > .link {
+.fb-actions {
   flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+.fb-actions .link {
   white-space: nowrap;
+}
+.fb-actions .link[aria-pressed="true"] {
+  color: var(--bad);
 }
 .fb-title {
   font-weight: 800;
