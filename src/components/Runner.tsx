@@ -9,7 +9,7 @@ import { DesmosPanel } from "./Desmos";
 import { IconArrowLeft, IconArrowRight, IconBookmark, IconBulb, IconCalc, IconCheck, IconEye, IconPause, IconPlay, IconSheet, IconStrike, IconX } from "./icons";
 import { byId, label, subByKey, subKeyOf, teach, type Teach } from "@/lib/bank";
 import { checkGridIn, cleanGridInput } from "@/lib/answer";
-import { createEngine, nextQuestion, recordAnswer, remainingInSet, startWith, TARGET, type Engine, type Hooks } from "@/lib/engine";
+import { createEngine, gapAfter, nextQuestion, recordAnswer, remainingInSet, startWith, TARGET, type Engine, type Hooks } from "@/lib/engine";
 import { loadQuestion, type QData } from "@/lib/data";
 import { needFor, readiness, recordAttempt, toggleBookmark, type Mode } from "@/lib/progress";
 import { fillersFor, modeOf, poolFor, scopeFromParams, scopeHref } from "@/lib/scope";
@@ -26,7 +26,12 @@ function clampCalc(f: number) {
 type Phase = "loading" | "answer" | "feedback" | "done" | "empty" | "waiting";
 /** When the feedback shows a past try (a question opened before it can count again). */
 type Past = { ago: string; wait: number; msLeft: number };
-type Result = { ok: boolean; response: string; before: number; after: number; mastered: boolean; ms: number; past?: Past };
+/**
+ * How a question's showing ended. first: the first try, which is the one that counts.
+ * retry: solved on a later try (after a miss, or on a question opened before it can count
+ * again), which never counts. reveal: the solution was revealed.
+ */
+type Result = { ok: boolean; response: string; before: number; after: number; mastered: boolean; ms: number; past?: Past; how: "first" | "retry" | "reveal" };
 type Tally = { answered: number; correct: number; mastered: number };
 
 function sameScope(a: Scope, b: Scope) {
@@ -107,6 +112,11 @@ function Session({ scope }: { scope: Scope }) {
   const [data, setData] = useState<QData | null>(null);
   const [phase, setPhase] = useState<Phase>(init.first ? "loading" : remainingInSet(engine) > 0 ? "waiting" : "empty");
   const [result, setResult] = useState<Result | null>(null);
+  // wrong answers tried in this showing; the question stays open until it's solved or revealed
+  const [tries, setTries] = useState<string[]>([]);
+  // set when a question missed recently is reopened for more tries (they don't count yet)
+  const [pastMiss, setPastMiss] = useState<Past | null>(null);
+  const [firstMs, setFirstMs] = useState(0);
   const [struck, setStruck] = useState<Set<string>>(new Set());
   const [grid, setGrid] = useState("");
   const [calc, setCalc] = useState(false);
@@ -161,11 +171,18 @@ function Session({ scope }: { scope: Scope }) {
         const last = r.last(current);
         if (last) {
           const c = qs(s, current).c;
-          setResult({ ok: last.ok, response: last.response, before: c, after: c, mastered: false, ms: last.ms, past: { ago: ago(Date.now() - last.at), wait: r.wait(current), msLeft: r.msLeft(current) } });
-          setShowWhy(!last.ok);
-          setPhase("feedback");
-          window.scrollTo({ top: 0 });
-          return;
+          const info: Past = { ago: ago(Date.now() - last.at), wait: r.wait(current), msLeft: r.msLeft(current) };
+          if (last.ok) {
+            setResult({ ok: true, response: last.response, before: c, after: c, mastered: false, ms: last.ms, past: info, how: "first" });
+            setShowWhy(false);
+            setPhase("feedback");
+            window.scrollTo({ top: 0 });
+            return;
+          }
+          // a recent miss: open it for more tries with that miss marked, answer still hidden
+          setTries([last.response]);
+          if (q.type !== "mc") setGrid(last.response);
+          setPastMiss(info);
         }
       }
       setPhase("answer");
@@ -197,30 +214,63 @@ function Session({ scope }: { scope: Scope }) {
 
   const answer = useCallback(
     (response: string) => {
-      if (phase !== "answer" || past || !current || !data || paused) return;
+      if (phase !== "answer" || !current || !data || paused) return;
+      if (data.type === "mc" && tries.includes(response)) return;
       const ok = data.type === "mc" ? response === data.answer : checkGridIn(response, data.answer as string[]);
       const ms = performance.now() - clockState.start - clockState.pausedMs;
-      const before = qs(getState(), current).c;
-      recordAttempt(current, ok, ms, response, mode);
-      const after = qs(getState(), current).c;
-      recordAnswer(engine, current, ok, after, need(current));
-      const mastered = before < TARGET && after >= TARGET;
-      const next: Tally = { answered: tally.answered + 1, correct: tally.correct + (ok ? 1 : 0), mastered: tally.mastered + (mastered ? 1 : 0) };
-      setTally(next);
-      update((s) => {
-        s.session = { scope, engine, startedAt: s.session && sameScope(s.session.scope, scope) ? s.session.startedAt : Date.now(), answered: next.answered, correct: next.correct };
-      });
-      setResult({ ok, response, before, after, mastered, ms });
-      setShowWhy(!ok);
+      // Only the first try of a showing counts (and is recorded). A miss stays a miss even if
+      // a later try is right, so picking through the choices can never earn mastery.
+      if (!past && tries.length === 0) {
+        const before = qs(getState(), current).c;
+        recordAttempt(current, ok, ms, response, mode);
+        const after = qs(getState(), current).c;
+        recordAnswer(engine, current, ok, after, need(current));
+        const mastered = before < TARGET && after >= TARGET;
+        const next: Tally = { answered: tally.answered + 1, correct: tally.correct + (ok ? 1 : 0), mastered: tally.mastered + (mastered ? 1 : 0) };
+        setTally(next);
+        update((s) => {
+          s.session = { scope, engine, startedAt: s.session && sameScope(s.session.scope, scope) ? s.session.startedAt : Date.now(), answered: next.answered, correct: next.correct };
+        });
+        setFirstMs(ms);
+        if (ok) {
+          setResult({ ok, response, before, after, mastered, ms, how: "first" });
+          setShowWhy(false);
+          setPhase("feedback");
+        } else {
+          setTries([response]);
+        }
+        return;
+      }
+      // a later try: nothing is recorded; wrong ones are marked, the answer stays hidden
+      if (!ok) {
+        setTries((t) => (t.includes(response) ? t : [...t, response]));
+        return;
+      }
+      const c = qs(getState(), current).c;
+      setResult({ ok: true, response, before: c, after: c, mastered: false, ms: firstMs || ms, past: pastMiss ?? undefined, how: "retry" });
+      setShowWhy(false);
       setPhase("feedback");
     },
-    [phase, past, current, data, paused, clockState, mode, engine, need, tally, scope],
+    [phase, past, tries, firstMs, pastMiss, current, data, paused, clockState, mode, engine, need, tally, scope],
   );
 
+  /** Show the answer and explanation. Only ever on request, after a miss. */
+  const reveal = () => {
+    if (phase !== "answer" || !current || !data || !tries.length) return;
+    const c = qs(getState(), current).c;
+    setResult({ ok: false, response: tries[tries.length - 1], before: c, after: c, mastered: false, ms: firstMs, past: pastMiss ?? undefined, how: "reveal" });
+    setShowWhy(true);
+    setPhase("feedback");
+  };
+
   const advance = useCallback(() => {
-    if (phase !== "feedback") return;
+    // from the result, or straight on after a miss without revealing
+    if (phase !== "feedback" && !(phase === "answer" && tries.length > 0)) return;
     const next = nextQuestion(engine, hooks());
     setResult(null);
+    setTries([]);
+    setPastMiss(null);
+    setFirstMs(0);
     setStruck(new Set());
     setGrid("");
     setShowWhy(false);
@@ -242,7 +292,7 @@ function Session({ scope }: { scope: Scope }) {
     setPhase("loading");
     setCurrent(next);
     setTurn((t) => t + 1);
-  }, [phase, engine, hooks, scope]);
+  }, [phase, tries, engine, hooks, scope]);
 
   // After answering, only the Next question button (or a deliberate Enter) moves on. Clicks,
   // Space, and arrow keys never do. Enter is ignored while held, right after answering (so the
@@ -357,7 +407,7 @@ function Session({ scope }: { scope: Scope }) {
                     </div>
                     {mixed ? <div className="muted qcat">Mixed in while the questions in {scope.label} wait their turn</div> : null}
                   </div>
-                  <Pips c={p?.c ?? 0} pop={result?.ok && !result.past ? result.after : -1} />
+                  <Pips c={p?.c ?? 0} pop={result?.ok && result.how === "first" && !result.past ? result.after : -1} />
                   <button className="icon-btn" aria-pressed={!!p?.bm} onClick={() => current && toggleBookmark(current)} aria-label={p?.bm ? "Remove bookmark" : "Bookmark"} title="Bookmark">
                     <IconBookmark filled={!!p?.bm} />
                   </button>
@@ -376,28 +426,32 @@ function Session({ scope }: { scope: Scope }) {
                   {data.type === "mc" ? (
                     <div className="choices">
                       {data.choices.map((ch) => {
+                        // the right answer only turns green once it's solved or revealed
                         let st = "idle";
                         if (result) {
                           if (ch.l === data.answer) st = "correct";
-                          else if (ch.l === result.response) st = "wrong";
+                          else if (tries.includes(ch.l)) st = "wrong";
                           else st = "dim";
-                        } else if (struck.has(ch.l)) st = "struck";
+                        } else if (tries.includes(ch.l)) st = "wrong";
+                        else if (struck.has(ch.l)) st = "struck";
+                        const open = phase === "answer" && !tries.includes(ch.l);
                         return (
                           <div className="choice-row" key={ch.l}>
                             <div
                               role="button"
-                              tabIndex={phase === "answer" ? 0 : -1}
+                              tabIndex={open ? 0 : -1}
                               className="choice"
                               data-state={st}
                               aria-label={`Choice ${ch.l}`}
+                              aria-disabled={!open}
                               onClick={(e) => {
-                                if (phase === "answer") {
+                                if (open) {
                                   e.stopPropagation();
                                   answer(ch.l);
                                 }
                               }}
                               onKeyDown={(e) => {
-                                if (phase === "answer" && (e.key === "Enter" || e.key === " ")) {
+                                if (open && (e.key === "Enter" || e.key === " ")) {
                                   e.preventDefault();
                                   e.stopPropagation();
                                   answer(ch.l);
@@ -409,7 +463,7 @@ function Session({ scope }: { scope: Scope }) {
                                 <Blocks blocks={ch.c} />
                               </div>
                             </div>
-                            {phase === "answer" ? (
+                            {open ? (
                               <button
                                 className="strike"
                                 aria-pressed={struck.has(ch.l)}
@@ -442,7 +496,7 @@ function Session({ scope }: { scope: Scope }) {
                       }}
                     >
                       <input
-                        className={`field${result ? (result.ok ? " ok" : " bad") : ""}`}
+                        className={`field${result ? (result.ok ? " ok" : " bad") : tries.length && grid.trim() === tries[tries.length - 1] ? " bad" : ""}`}
                         value={result ? result.response : grid}
                         onChange={(e) => setGrid(cleanGridInput(e.target.value))}
                         placeholder="Your answer"
@@ -464,6 +518,24 @@ function Session({ scope }: { scope: Scope }) {
               ) : (
                 <div className="loading muted">Loading the question</div>
               )}
+
+              {phase === "answer" && tries.length > 0 && data ? (
+                <>
+                  <p className="miss-note" role="status">
+                    <strong>Not quite.</strong> {missNote(pastMiss, Math.min(p?.c ?? 0, TARGET), data.type === "mc" ? [] : tries)}
+                  </p>
+                  <div className="nextbar">
+                    <span className="muted nextbar-hint">Try again, or</span>
+                    <button className="btn" onClick={reveal}>
+                      Reveal solution
+                    </button>
+                    <button className="btn btn-ghost" onClick={advance}>
+                      {remainingInSet(engine) ? "Next question" : "Finish set"}
+                      <IconArrowRight size={18} />
+                    </button>
+                  </div>
+                </>
+              ) : null}
 
               {phase === "feedback" && result && data ? (
                 <>
@@ -561,13 +633,13 @@ function Feedback({
   }, []);
   const correctText = data.type === "mc" ? `The answer is ${data.answer}.` : `Accepted answers: ${(data.answer as string[]).join(", ")}.`;
   return (
-    <section className="feedback" data-ok={result.ok ? "1" : "0"} ref={box}>
+    <section className="feedback" data-ok={result.how === "reveal" ? "0" : "1"} ref={box}>
       <div className="fb-head">
         <div>
-          <div className="fb-title">{result.ok ? (result.mastered ? "Correct. Mastered." : "Correct.") : "Not this time."}</div>
-          <div className="muted">{result.past ? pastNote(result, result.past, correctText) : result.ok ? `${Math.min(result.after, TARGET)} of ${TARGET} toward mastery.` : `${correctText} It still counts ${Math.min(result.after, TARGET)} of ${TARGET}, and it will come back in a few questions.`}</div>
+          <div className="fb-title">{result.how === "reveal" ? "Solution" : result.mastered ? "Correct. Mastered." : "Correct."}</div>
+          <div className="muted">{resultNote(result, correctText)}</div>
         </div>
-        {result.ok && !showWhy ? (
+        {!showWhy ? (
           <button className="link" onClick={() => setShowWhy(true)}>
             Show the explanation
           </button>
@@ -606,17 +678,33 @@ function Feedback({
   );
 }
 
-/** What the feedback says when it shows a past try instead of a new one. */
-function pastNote(result: Result, past: Past, correctText: string): string {
+/** When a question that can't count yet will count again. */
+function countsAgain(past: Past): string {
+  return past.wait > 0
+    ? `Your next try counts after ${past.wait} other ${past.wait === 1 ? "question" : "questions"}, or in ${minutes(past.msLeft)}.`
+    : "It is ready for another try.";
+}
+
+const MISS_GAP = gapAfter(false, 0);
+
+/** The line under the choices after a miss, while the question is still open. */
+function missNote(pastMiss: Past | null, c: number, typed: string[]): string {
+  const tried = typed.length > 1 ? ` Tried so far: ${typed.join(", ")}.` : "";
+  const keep = "Try again as many times as you like. The answer stays hidden unless you reveal it.";
+  if (pastMiss) return `You missed this ${pastMiss.ago}. ${keep}${tried} Tries now don't count yet. ${countsAgain(pastMiss)}`;
+  return `${keep}${tried} This one counts as a miss (${c} of ${TARGET}) and comes back after ${MISS_GAP} other questions.`;
+}
+
+/** The line in the result box. */
+function resultNote(result: Result, correctText: string): string {
   const c = Math.min(result.after, TARGET);
-  const when = `You answered this ${past.ago}.`;
-  if (c >= TARGET) return `${when} Mastered, ${TARGET} of ${TARGET}.`;
-  const answer = result.ok ? "" : ` ${correctText}`;
-  const next =
-    past.wait > 0
-      ? ` Your next try counts after ${past.wait} other ${past.wait === 1 ? "question" : "questions"}, or in ${minutes(past.msLeft)}.`
-      : " It is ready for another try.";
-  return `${when}${answer} ${c} of ${TARGET} toward mastery.${next}`;
+  if (result.how === "first") {
+    if (!result.past) return `${c} of ${TARGET} toward mastery.`;
+    const when = `You answered this ${result.past.ago}.`;
+    return c >= TARGET ? `${when} Mastered, ${TARGET} of ${TARGET}.` : `${when} ${c} of ${TARGET} toward mastery. ${countsAgain(result.past)}`;
+  }
+  const after = result.past ? countsAgain(result.past) : `This one counts as a miss (${c} of ${TARGET}) and comes back after ${MISS_GAP} other questions.`;
+  return result.how === "retry" ? `That's it. ${result.past ? "" : "The first try missed, so "}${result.past ? after : after.charAt(0).toLowerCase() + after.slice(1)}` : `${correctText} ${after}`;
 }
 
 function Done({ tally }: { tally: { answered: number; correct: number; mastered: number } }) {

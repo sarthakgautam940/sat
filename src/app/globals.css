@@ -846,6 +846,16 @@ svg.m,
   border-color: var(--bad);
   color: var(--bg);
 }
+.miss-note {
+  margin: 18px 0 0;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+.miss-note strong {
+  color: var(--bad);
+  font-weight: 800;
+}
 .choice[data-state="dim"] {
   opacity: 0.5;
   cursor: default;
