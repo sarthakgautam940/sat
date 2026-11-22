@@ -15,7 +15,13 @@ npm run dev
 
 It is a static site (`output: "export"`, written to `out/`). On Vercel, import this repository as a new project; `vercel.json` sets the build command and the output directory, so the framework preset doesn't matter. Any static host works too: `npm run build`, then serve `out/`.
 
-Progress is stored in the browser (localStorage). Settings has Export and Import so it can be backed up or moved to another device.
+Progress is stored in the browser (localStorage) first, so the app works offline. Settings has Export and Import for backups.
+
+### Sync across devices
+
+Settings, Sync across devices: turn it on to get a sync code and a link; open the link (or type the code) on another device and both share the same progress. `api/progress.ts` is a Vercel Function that stores each code's progress as one private file in Vercel Blob, named by a hash of the code. Devices never overwrite each other: answer logs are combined and every question's progress is rebuilt from the combined log (`mergeStates` in `src/lib/sync.ts`); writes are conditional on the version a device last saw, and a device that loses the race merges and tries again. Erasing or importing progress starts a new generation that the other devices adopt. Changes go up at most every 4 minutes while practicing and right away when the tab is hidden, which keeps a month of heavy use inside the free Blob tier.
+
+One-time setup: in the Vercel project, open Storage, create a Blob store with private access, connect it to the project, and redeploy. Without it the app still works; Settings says sync isn't set up.
 
 ## How studying works
 

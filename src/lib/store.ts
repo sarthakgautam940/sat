@@ -26,6 +26,8 @@ export type QS = {
   lw?: 1;
   /** bookmarked */
   bm?: 1;
+  /** when the bookmark was last set or cleared (ms), so syncing keeps the latest choice */
+  bt?: number;
 };
 
 /** [time, question id, correct, ms spent, response, mode] */
@@ -48,6 +50,14 @@ export type State = {
   log: LogRow[];
   settings: Settings;
   session: SavedSession | null;
+  /** last change on any device (ms); the newer state's settings and session win a sync */
+  at?: number;
+  /**
+   * Generation: a new one starts when progress is erased or replaced by an import, so
+   * syncing adopts the newer generation instead of merging the old answers back in.
+   */
+  gen?: string;
+  genAt?: number;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -71,8 +81,7 @@ function load(): State {
   try {
     const raw = window.localStorage.getItem(KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as State;
-      current = { ...fresh(), ...parsed, settings: { ...DEFAULT_SETTINGS, ...parsed.settings } };
+      current = normalizeState(JSON.parse(raw) as State);
       return current;
     }
   } catch {
@@ -103,24 +112,44 @@ export function update(fn: (draft: State) => void) {
   const base = load();
   const draft: State = structuredClone(base);
   fn(draft);
+  draft.at = Date.now();
   current = draft;
   save(draft);
   emit();
 }
 
+function newGen(): Pick<State, "gen" | "genAt" | "at"> {
+  const now = Date.now();
+  return { gen: Math.random().toString(36).slice(2, 10), genAt: now, at: now };
+}
+
+/** Fill in anything an older or partial state is missing. */
+export function normalizeState(s: Partial<State>): State {
+  return { ...fresh(), ...s, settings: { ...DEFAULT_SETTINGS, ...s.settings } } as State;
+}
+
+/** Replace everything with an imported file. It becomes the new truth on synced devices too. */
 export function replaceState(next: State) {
-  current = { ...fresh(), ...next, settings: { ...DEFAULT_SETTINGS, ...next.settings } };
+  current = { ...normalizeState(next), ...newGen() };
   save(current);
   emit();
 }
 
+/** Erase everything. On synced devices too. */
 export function resetState() {
-  current = fresh();
+  current = { ...fresh(), ...newGen() };
   save(current);
   emit();
 }
 
-function subscribe(cb: () => void) {
+/** Put in a state that came from syncing, as is (no new timestamp). */
+export function applySyncedState(next: State) {
+  current = normalizeState(next);
+  save(current);
+  emit();
+}
+
+export function subscribe(cb: () => void) {
   listeners.add(cb);
   const onStorage = (e: StorageEvent) => {
     if (e.key === KEY) {

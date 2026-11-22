@@ -4,6 +4,7 @@ import "katex/dist/katex.min.css";
 import "./globals.css";
 import { GlyphSprite } from "@/components/Content";
 import { JumpDialog } from "@/components/JumpDialog";
+import { SyncAgent } from "@/components/SyncAgent";
 
 const figtree = Figtree({ subsets: ["latin"], variable: "--font-figtree", display: "swap" });
 
@@ -21,6 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <GlyphSprite />
         <JumpDialog />
+        <SyncAgent />
         {children}
       </body>
     </html>

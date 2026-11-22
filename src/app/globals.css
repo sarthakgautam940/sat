@@ -1245,3 +1245,41 @@ body.resizing * {
   height: 20px;
   accent-color: var(--ink);
 }
+
+/* ------------------------------------------------------------------ sync */
+.sync-connect {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 22px 0 14px;
+}
+.sync-connect .muted {
+  font-size: 13.5px;
+}
+.sync-code {
+  display: inline-block;
+  padding: 12px 16px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 12px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  user-select: all;
+  word-break: break-all;
+}
+.sync-join {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+.sync-join .field {
+  flex: 1;
+  min-width: 220px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.sync-error {
+  color: var(--bad);
+  margin-top: 12px;
+}

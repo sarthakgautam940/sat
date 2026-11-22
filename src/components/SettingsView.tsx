@@ -2,6 +2,9 @@
 
 import { useRef, useState } from "react";
 import { DEFAULT_SETTINGS, replaceState, resetState, update, useHydrated, useStore, type State } from "@/lib/store";
+import { formatCode, joinSync, startNewSync, stopSync, syncLink, syncNow, useSyncStatus } from "@/lib/sync";
+import { ago } from "@/lib/dates";
+import { useNow } from "@/lib/useNow";
 
 export function SettingsView() {
   const state = useStore();
@@ -25,6 +28,7 @@ export function SettingsView() {
       const parsed = JSON.parse(await f.text()) as State;
       if (parsed.v !== 1 || typeof parsed.q !== "object" || !Array.isArray(parsed.log)) throw new Error("not a progress file");
       replaceState(parsed);
+      void syncNow();
       setMsg(`Imported ${Object.keys(parsed.q).length} questions of progress and ${parsed.log.length} answers.`);
     } catch {
       setMsg("That file isn't a SAT Bank progress file.");
@@ -34,7 +38,9 @@ export function SettingsView() {
   return (
     <div style={{ maxWidth: 680 }}>
       <h1 className="title">Settings</h1>
-      <p className="subtitle">Progress is saved in this browser. Export a backup now and then.</p>
+      <p className="subtitle">Progress is saved in this browser, and on every device you connect with sync.</p>
+
+      <SyncSection />
 
       <section className="section">
         <h2 className="h2">Schedule</h2>
@@ -73,13 +79,14 @@ export function SettingsView() {
       <section className="section">
         <h2 className="h2">Start over</h2>
         <p className="muted" style={{ marginTop: 0 }}>
-          Clears every answer and all mastery in this browser. Export first if you might want it back.
+          Clears every answer and all mastery in this browser, and on every device connected with sync. Export first if you might want it back.
         </p>
         <button
           className="btn btn-ghost"
           onClick={() => {
-            if (window.confirm("Erase all progress in this browser?")) {
+            if (window.confirm("Erase all progress? This also erases it on every device connected with sync.")) {
               resetState();
+              void syncNow();
               setMsg("Progress erased.");
             }
           }}
@@ -88,5 +95,98 @@ export function SettingsView() {
         </button>
       </section>
     </div>
+  );
+}
+
+function SyncSection() {
+  const sync = useSyncStatus();
+  const now = useNow();
+  const [entering, setEntering] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [copied, setCopied] = useState("");
+
+  const copy = async (text: string, what: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(what);
+      setTimeout(() => setCopied(""), 2000);
+    } catch {
+      setCopied("");
+    }
+  };
+
+  if (!sync.code) {
+    return (
+      <section className="section">
+        <h2 className="h2">Sync across devices</h2>
+        <p className="muted" style={{ marginTop: 0 }}>
+          Right now your progress lives in this browser only. Turn on sync to pick up where you left off on your phone, laptop, or any other device.
+        </p>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button className="btn" onClick={() => void startNewSync()}>
+            Turn on sync
+          </button>
+          <button className="btn btn-ghost" aria-expanded={entering} onClick={() => setEntering((v) => !v)}>
+            I have a code from another device
+          </button>
+        </div>
+        {entering ? (
+          <form
+            className="sync-join"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (typed.trim()) void joinSync(typed);
+            }}
+          >
+            <input className="field" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="abcd-efgh-jkmn-pqrs-tuvw" aria-label="Sync code" autoComplete="off" autoCapitalize="none" spellCheck={false} />
+            <button className="btn" type="submit" disabled={!typed.trim()}>
+              Connect
+            </button>
+          </form>
+        ) : null}
+        {sync.state === "error" ? <p className="sync-error">{sync.message}</p> : null}
+      </section>
+    );
+  }
+
+  const line =
+    sync.state === "syncing"
+      ? "Syncing"
+      : sync.state === "error"
+        ? sync.message
+        : sync.at && now
+          ? `Synced ${ago(Math.max(0, now - sync.at))}. Changes go up every few minutes while you practice, and right away when you leave.`
+          : "Sync is on.";
+  return (
+    <section className="section">
+      <h2 className="h2">Sync across devices</h2>
+      <p className={sync.state === "error" ? "sync-error" : "muted"} style={{ marginTop: 0 }}>
+        {line}
+      </p>
+      <div className="sync-connect">
+        <strong>Connect another device</strong>
+        <span className="muted">Open the link on it, or type this code into its Settings. Keep the code private: anyone with it can see and change your progress.</span>
+      </div>
+      <div className="sync-code tnum">{formatCode(sync.code)}</div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
+        <button className="btn" onClick={() => void copy(syncLink(sync.code!), "link")}>
+          {copied === "link" ? "Link copied" : "Copy link"}
+        </button>
+        <button className="btn btn-ghost" onClick={() => void copy(formatCode(sync.code!), "code")}>
+          {copied === "code" ? "Code copied" : "Copy code"}
+        </button>
+        <button className="btn btn-ghost" onClick={() => void syncNow()} disabled={sync.state === "syncing"}>
+          Sync now
+        </button>
+        <button
+          className="btn btn-ghost"
+          onClick={() => {
+            if (window.confirm("Stop syncing on this device? Your progress stays here, and stays on your other devices.")) stopSync();
+          }}
+        >
+          Turn off on this device
+        </button>
+      </div>
+    </section>
   );
 }

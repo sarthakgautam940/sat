@@ -1,7 +1,7 @@
 "use client";
 
 import { gapAfter, TARGET } from "./engine";
-import { qs, update, type State } from "./store";
+import { qs, update, type LogRow, type QS, type State } from "./store";
 
 export type Mode = "learn" | "harden";
 
@@ -20,33 +20,45 @@ export function needFor(state: State, id: string, mode: Mode): number {
 export function recordAttempt(id: string, ok: boolean, ms: number, response: string, mode: Mode) {
   const now = Date.now();
   update((s) => {
-    const q = { ...qs(s, id) };
-    q.n += 1;
-    q.t = now;
-    if (q.f === undefined) q.f = ok ? 1 : 0;
-    if (ok) {
-      delete q.lw;
-      if (mode === "harden" && q.c >= TARGET) {
-        q.h = now;
-      } else {
-        q.c = Math.min(TARGET, q.c + 1);
-        if (q.c >= TARGET) {
-          q.m = q.m ?? now;
-          if (mode === "harden") q.h = now;
-        }
-      }
-    } else {
-      q.w += 1;
-      q.lw = 1;
-      if (mode === "harden" && q.c >= TARGET) {
-        q.c = 3;
-        delete q.m;
-        delete q.h;
-      }
-    }
-    s.q[id] = q;
+    s.q[id] = applyAttempt(qs(s, id), ok, mode, now);
     s.log.push([now, id, ok ? 1 : 0, Math.round(ms), response, mode]);
   });
+}
+
+/** One answer's effect on a question's progress. Pure, so progress can be rebuilt from the log. */
+export function applyAttempt(prev: QS, ok: boolean, mode: string, at: number): QS {
+  const q = { ...prev };
+  q.n += 1;
+  q.t = at;
+  if (q.f === undefined) q.f = ok ? 1 : 0;
+  if (ok) {
+    delete q.lw;
+    if (mode === "harden" && q.c >= TARGET) {
+      q.h = at;
+    } else {
+      q.c = Math.min(TARGET, q.c + 1);
+      if (q.c >= TARGET) {
+        q.m = q.m ?? at;
+        if (mode === "harden") q.h = at;
+      }
+    }
+  } else {
+    q.w += 1;
+    q.lw = 1;
+    if (mode === "harden" && q.c >= TARGET) {
+      q.c = 3;
+      delete q.m;
+      delete q.h;
+    }
+  }
+  return q;
+}
+
+/** Every question's progress, rebuilt from the answer log (bookmarks are not in the log). */
+export function replayLog(log: LogRow[]): Record<string, QS> {
+  const out: Record<string, QS> = {};
+  for (const [at, id, ok, , , mode] of log) out[id] = applyAttempt(out[id] ?? { c: 0, n: 0, w: 0, t: 0 }, ok === 1, mode, at);
+  return out;
 }
 
 export function toggleBookmark(id: string) {
@@ -54,6 +66,7 @@ export function toggleBookmark(id: string) {
     const q = { ...qs(s, id) };
     if (q.bm) delete q.bm;
     else q.bm = 1;
+    q.bt = Date.now();
     s.q[id] = q;
   });
 }
