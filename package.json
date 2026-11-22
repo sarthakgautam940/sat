@@ -2,6 +2,7 @@
   "name": "sat-bank",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "description": "Mastery question bank for the hardest SAT Math and Reading and Writing questions.",
   "scripts": {
     "data": "node scripts/build-data.mjs",
