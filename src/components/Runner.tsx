@@ -70,7 +70,14 @@ type Init = {
   hooks: () => Hooks;
   /** review questions answered right this session (they're done) */
   reviewedRight: Set<string>;
+  /** a review list (Bookmarked, Missed) goes through its questions in order, once each */
+  seq: string[] | null;
 };
+
+/** Where the back arrow and the end of a set go: a review list returns to its list. */
+function homeFor(scope: Scope): string {
+  return scope.kind === "bookmarked" || scope.kind === "missed" ? `/?list=${scope.kind}` : "/";
+}
 
 /** Build or resume the session from saved progress (runs once, on the client). */
 function initSession(scope: Scope): Init {
@@ -97,7 +104,7 @@ function initSession(scope: Scope): Init {
   const saved = s.session;
   let engine: Engine;
   let tally: Tally = { answered: 0, correct: 0, mastered: 0 };
-  const resumed = !!saved && sameScope(saved.scope, scope) && !scope.start && remainingInSet(saved.engine) > 0;
+  const resumed = !review && !!saved && sameScope(saved.scope, scope) && !scope.start && remainingInSet(saved.engine) > 0;
   if (saved && resumed) {
     engine = saved.engine;
     tally = { answered: saved.answered, correct: saved.correct, mastered: 0 };
@@ -105,7 +112,7 @@ function initSession(scope: Scope): Init {
     engine = createEngine(scopeIds, need);
   }
   // A review list (Bookmarked, Missed) opens on its first question, like a clicked tile.
-  const opener = scope.start ?? (review && !resumed ? scopeIds.find((id) => need(id) > 0) : undefined);
+  const opener = scope.start ?? (review ? scopeIds[0] : undefined);
   // A clicked question always opens first. If it can count now (never tried, or spaced out
   // enough since its last try) it is a new try; otherwise its last try is shown, with the
   // answer and explanation, and nothing is recorded.
@@ -120,7 +127,7 @@ function initSession(scope: Scope): Init {
     first = nextQuestion(engine, hooks());
   }
   const firstMixed = !!engine.active.find((slot) => slot.id === first)?.filler;
-  return { engine, mode, scopeIds, first, firstPast, firstMixed, tally, need, hooks, reviewedRight };
+  return { engine, mode, scopeIds, first, firstPast, firstMixed, tally, need, hooks, reviewedRight, seq: review ? poolFor({ ...scope, start: undefined }, s) : null };
 }
 
 export function Runner() {
@@ -135,11 +142,13 @@ export function Runner() {
 function Session({ scope }: { scope: Scope }) {
   const state = useStore();
   const [init] = useState(() => initSession(scope));
-  const { engine, mode, scopeIds, need, hooks, reviewedRight } = init;
+  const { engine, mode, scopeIds, need, hooks, reviewedRight, seq } = init;
 
   const [current, setCurrent] = useState<string | null>(init.first);
   const [past, setPast] = useState(init.firstPast);
   const [mixed, setMixed] = useState(init.firstMixed);
+  // position in a review list
+  const [seqPos, setSeqPos] = useState(seq && init.first ? seq.indexOf(init.first) : -1);
   const [turn, setTurn] = useState(0);
   const [data, setData] = useState<QData | null>(null);
   const [phase, setPhase] = useState<Phase>(init.first ? "loading" : remainingInSet(engine) > 0 ? "waiting" : "empty");
@@ -348,7 +357,20 @@ function Session({ scope }: { scope: Scope }) {
     if (phase !== "feedback" && !(phase === "answer" && (tries.length > 0 || firstKey))) return;
     // in a review list, a mastered question seen again (or solved) is reviewed: don't bring it back
     if (current && (past || result?.ok) && (getState().q[current]?.c ?? 0) >= TARGET) reviewedRight.add(current);
-    const next = nextQuestion(engine, hooks());
+    // a review list goes to the next question in its order; otherwise the scheduler picks
+    let next: string | null;
+    let nextPast = false;
+    if (seq) {
+      next = seq[seqPos + 1] ?? null;
+      if (next) {
+        const r = readiness(getState(), Date.now());
+        // tried too recently to count again: shown as its last try, like a clicked tile
+        nextPast = !!r.last(next) && r.wait(next) > 0;
+        setSeqPos(seqPos + 1);
+      }
+    } else {
+      next = nextQuestion(engine, hooks());
+    }
     setResult(null);
     setTries([]);
     setPastMiss(null);
@@ -358,12 +380,12 @@ function Session({ scope }: { scope: Scope }) {
     setStruck(new Set());
     setGrid("");
     setShowWhy(false);
-    setPast(false);
+    setPast(nextPast);
     if (!next) {
       setCurrent(null);
       setData(null);
       // either the set is complete, or everything left is waiting for its spacing
-      const waiting = remainingInSet(engine) > 0;
+      const waiting = !seq && remainingInSet(engine) > 0;
       setPhase(waiting ? "waiting" : "done");
       if (!waiting) {
         update((s) => {
@@ -376,7 +398,7 @@ function Session({ scope }: { scope: Scope }) {
     setPhase("loading");
     setCurrent(next);
     setTurn((t) => t + 1);
-  }, [phase, tries, firstKey, current, past, result, reviewedRight, engine, hooks, scope]);
+  }, [phase, tries, firstKey, current, past, result, reviewedRight, seq, seqPos, engine, hooks, scope]);
 
   // After answering, only the Next question button (or a deliberate Enter) moves on. Clicks,
   // Space, and arrow keys never do. Enter is ignored while held, right after answering (so the
@@ -425,19 +447,20 @@ function Session({ scope }: { scope: Scope }) {
   // a clean round on a question whose record can't change any more
   const firstMark = firstKey ? state.marks?.[firstKey] : undefined;
   const practiceRound = firstOk === true || !!firstMark?.fixed || !!firstMark?.revealed;
+  const hasNext = seq ? seqPos < seq.length - 1 : remainingInSet(engine) > 0;
 
   return (
     <div className={`runner${calc || ref ? " split" : ""}`}>
       <header className="rhead">
         <div className="rhead-l">
-          <Link href="/" className="icon-btn" aria-label="Back to the question bank">
+          <Link href={homeFor(scope)} className="icon-btn" aria-label={seq ? "Back to the list" : "Back to the question bank"}>
             <IconArrowLeft />
           </Link>
           <div className="rscope">
             <strong>{scope.label}</strong>
             {scopeIds.length ? (
               <span className="muted tnum">
-                {scopeDone} of {scopeIds.length} mastered
+                {seq ? `${seqPos + 1} of ${seq.length}` : `${scopeDone} of ${scopeIds.length} mastered`}
               </span>
             ) : null}
           </div>
@@ -477,7 +500,7 @@ function Session({ scope }: { scope: Scope }) {
           ) : phase === "waiting" ? (
             <Waiting scope={scope} />
           ) : phase === "done" ? (
-            <Done tally={tally} />
+            <Done tally={tally} home={homeFor(scope)} list={!!seq} />
           ) : (
             <div className="qcol">
               {meta && sub ? (
@@ -626,7 +649,7 @@ function Session({ scope }: { scope: Scope }) {
                       Reveal solution
                     </button>
                     <button className="btn btn-ghost" onClick={advance}>
-                      {remainingInSet(engine) ? "Next question" : "Finish set"}
+                      {hasNext ? "Next question" : "Finish set"}
                       <IconArrowRight size={18} />
                     </button>
                   </div>
@@ -649,7 +672,7 @@ function Session({ scope }: { scope: Scope }) {
                   <div className="nextbar">
                     <span className="muted nextbar-hint">or press Enter</span>
                     <button className="btn" onClick={advance}>
-                      {remainingInSet(engine) ? "Next question" : "Finish set"}
+                      {hasNext ? "Next question" : "Finish set"}
                       <IconArrowRight size={18} />
                     </button>
                   </div>
@@ -855,16 +878,22 @@ function resultNote(result: Result, correctText: string, studied: boolean): stri
   return `${correctText} ${result.past ? countsAgain(result.past) : `This one counts as a miss and comes back after ${MISS_GAP} other questions.`}`;
 }
 
-function Done({ tally }: { tally: { answered: number; correct: number; mastered: number } }) {
+function Done({ tally, home, list }: { tally: { answered: number; correct: number; mastered: number }; home: string; list: boolean }) {
   const pct = tally.answered ? Math.round((tally.correct / tally.answered) * 100) : 0;
   return (
     <div className="done">
       <h1 className="title">Set complete</h1>
       <p className="subtitle">
-        {tally.answered ? `${tally.answered} answers, ${tally.correct} correct (${pct}%). ${tally.mastered} ${tally.mastered === 1 ? "question" : "questions"} mastered this session.` : "Every question in this set is mastered."}
+        {tally.answered ? `${tally.answered} answers, ${tally.correct} correct (${pct}%). ${tally.mastered} ${tally.mastered === 1 ? "question" : "questions"} mastered this session.` : list ? "That's the end of the list." : "Every question in this set is mastered."}
+        {tally.answered && list ? " That's the end of the list." : ""}
       </p>
       <div style={{ display: "flex", gap: 10, marginTop: 24, flexWrap: "wrap" }}>
-        <Link className="btn" href="/">
+        {list ? (
+          <Link className="btn" href={home}>
+            Back to the list
+          </Link>
+        ) : null}
+        <Link className={list ? "btn btn-ghost" : "btn"} href="/">
           Question bank
         </Link>
       </div>
@@ -907,7 +936,7 @@ function EmptySet({ scope }: { scope: Scope }) {
       <h1 className="title">{scope.label}</h1>
       <p className="subtitle">{msg}</p>
       <div style={{ marginTop: 24 }}>
-        <Link className="btn" href="/">
+        <Link className="btn" href={homeFor(scope)}>
           Question bank
         </Link>
       </div>

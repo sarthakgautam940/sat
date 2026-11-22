@@ -2,19 +2,30 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { IconBookmark, IconCheck, IconX } from "./icons";
+import { useSearchParams } from "next/navigation";
+import { IconArrowLeft, IconBookmark, IconCheck, IconX } from "./icons";
 import { byId, label, sections, type SectionKey } from "@/lib/bank";
 import { shade, TARGET } from "@/lib/engine";
-import { scopeHref } from "@/lib/scope";
+import { BANK_ORDER, scopeHref } from "@/lib/scope";
 import { useHydrated, useStore, type State } from "@/lib/store";
 
 function level(state: State, id: string) {
   return Math.min(state.q[id]?.c ?? 0, TARGET);
 }
 
+type ListKind = "bookmarked" | "missed";
+
+/** Which questions a review list holds. */
+function inList(kind: ListKind, st: State, id: string): boolean {
+  return kind === "bookmarked" ? !!st.q[id]?.bm : !!st.q[id]?.lw;
+}
+
 export function BankView() {
   const state = useStore();
   const ready = useHydrated();
+  // ?list=bookmarked or ?list=missed shows just those questions, in the bank's format
+  const param = useSearchParams().get("list");
+  const list: ListKind | null = param === "bookmarked" || param === "missed" ? param : null;
   const [sec, setSec] = useState<SectionKey>("math");
   const section = sections.find((s) => s.key === sec)!;
   const st = useMemo(() => (ready ? state : ({ q: {} } as State)), [ready, state]);
@@ -39,6 +50,9 @@ export function BankView() {
 
   return (
     <div className="bank">
+      {list ? (
+        <ListHead kind={list} count={BANK_ORDER.filter((id) => inList(list, st, id)).length} />
+      ) : (
       <header className="bank-head">
         <div>
           <h1 className="title">Question bank</h1>
@@ -55,13 +69,19 @@ export function BankView() {
           </button>
         </div>
       </header>
+      )}
 
       <div className="bank-grid">
         <aside className="bank-rail">
-          <Link href={scopeHref({ kind: "bookmarked" })} className="rail-item">
+          {list ? (
+            <Link href="/" className="rail-item">
+              <IconArrowLeft size={17} /> All questions
+            </Link>
+          ) : null}
+          <Link href="/?list=bookmarked" className="rail-item" aria-current={list === "bookmarked" ? "page" : undefined}>
             <IconBookmark size={17} /> Bookmarked <span className="tnum muted">{counts.marked}</span>
           </Link>
-          <Link href={scopeHref({ kind: "missed" })} className="rail-item">
+          <Link href="/?list=missed" className="rail-item" aria-current={list === "missed" ? "page" : undefined}>
             <IconX size={17} /> Missed <span className="tnum muted">{counts.missed}</span>
           </Link>
           {counts.unchecked ? (
@@ -69,18 +89,20 @@ export function BankView() {
               <IconCheck size={17} /> Final check <span className="tnum muted">{counts.unchecked}</span>
             </Link>
           ) : null}
+          {list ? null : (
+          <>
           <div className="rail-label">
             Topics <span>answered right</span>
           </div>
           {section.categories.map((c) => {
             const ids = c.subs.flatMap((s) => s.qs);
             const m = ids.filter((id) => level(st, id) >= TARGET).length;
-            // questions gotten right so far: the ones whose tile shows a green check (or that are on their way to 5)
+            // questions gotten right so far: the ones whose tile shows a green check, or mastered
             const right = ids.filter((id) => {
               const p = st.q[id];
               return !!p && (p.c > 0 || (p.n > 0 && !p.lw));
             }).length;
-            // every correct answer counts here, toward 5 per question
+            // how much of the topic is mastered
             const reps = ids.reduce((n, id) => n + level(st, id), 0);
             const of = ids.length * TARGET;
             return (
@@ -105,13 +127,16 @@ export function BankView() {
           <Link href={scopeHref({ kind: "section", value: sec })} className="btn btn-sm" style={{ marginTop: 16 }}>
             Practice all {sec === "math" ? "Math" : "Reading and Writing"}
           </Link>
+          </>
+          )}
           <p className="muted" style={{ fontSize: 12.5, marginTop: 14 }}>
             Press Ctrl+Shift+F to jump to a question by number.
           </p>
         </aside>
 
         <div className="bank-main">
-          {section.categories.map((c) => (
+          {list ? <ListView kind={list} st={st} /> : null}
+          {list ? null : section.categories.map((c) => (
             <section key={c.name} id={slug(sec, c.name)} className="cat">
               <div className="cat-head">
                 <h2 className="h3">{c.name}</h2>
@@ -161,14 +186,75 @@ export function BankView() {
   );
 }
 
-function QTile({ id, subKey, st, big }: { id: string; subKey: string; st: State; big?: boolean }) {
+function ListHead({ kind, count }: { kind: ListKind; count: number }) {
+  return (
+    <header className="bank-head">
+      <div>
+        <h1 className="title">{kind === "bookmarked" ? "Bookmarked" : "Missed"}</h1>
+        <p className="subtitle">
+          {count
+            ? `${count} ${count === 1 ? "question" : "questions"}${kind === "missed" ? " whose last try was a miss" : ""}. Click one to start there; Next question goes through the rest in this order.`
+            : kind === "bookmarked"
+              ? "No bookmarks yet. Use the bookmark button on any question."
+              : "Nothing missed right now. A question you miss shows up here until you get it right."}
+        </p>
+      </div>
+      {count ? (
+        <Link className="btn" href={scopeHref({ kind })}>
+          Start from the first
+        </Link>
+      ) : null}
+    </header>
+  );
+}
+
+/** A review list in the bank's format: only the listed questions, grouped by section, topic, and pattern. */
+function ListView({ kind, st }: { kind: ListKind; st: State }) {
+  const listed = new Set(BANK_ORDER.filter((id) => inList(kind, st, id)));
+  return (
+    <>
+      {sections.map((sec) => {
+        const cats = sec.categories
+          .map((c) => ({ c, subs: c.subs.map((s) => ({ s, qs: s.qs.filter((id) => listed.has(id)) })).filter((x) => x.qs.length) }))
+          .filter((x) => x.subs.length);
+        if (!cats.length) return null;
+        return (
+          <div key={sec.key} className="list-sec">
+            <h2 className="h2">{sec.name}</h2>
+            {cats.map(({ c, subs }) => (
+              <section key={c.name} className="cat">
+                <div className="cat-head">
+                  <h3 className="h3">{c.name}</h3>
+                </div>
+                {subs.map(({ s, qs }) => (
+                  <div key={s.key} className="sub-row list-row">
+                    <span className="sub-name">
+                      {s.n}. {s.name}
+                    </span>
+                    <div className="sub-tiles">
+                      {qs.map((id) => (
+                        <QTile key={id} id={id} subKey={s.key} st={st} href={scopeHref({ kind, start: id })} />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </section>
+            ))}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function QTile({ id, subKey, st, big, href }: { id: string; subKey: string; st: State; big?: boolean; href?: string }) {
   const q = byId.get(id)!;
   const p = st.q[id];
   const m = level(st, id);
   const name = label(q);
   return (
     <Link
-      href={scopeHref({ kind: "sub", value: subKey, start: id })}
+      href={href ?? scopeHref({ kind: "sub", value: subKey, start: id })}
       className={big ? "tile big" : "tile"}
       data-m={shade(m)}
       title={`${name}: ${q.pattern}${p ? `. ${m >= TARGET ? "Mastered" : "Not mastered yet"}${p.w ? `, missed ${p.w}` : ""}` : ""}`}

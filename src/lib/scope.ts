@@ -64,6 +64,10 @@ function curriculumOrder(): QMeta[] {
 
 const ORDER = curriculumOrder();
 
+/** The bank's own order: section, topic, pattern, question. Review lists use it. */
+export const BANK_ORDER: string[] = sections.flatMap((s) => s.categories.flatMap((c) => c.subs.flatMap((sub) => sub.qs)));
+const byIdMeta = new Map(questions.map((q) => [q.id, q]));
+
 export function poolFor(scope: Scope, state: State): string[] {
   const p = (id: string) => state.q[id];
   const inProgress = (q: QMeta) => (p(q.id)?.n ?? 0) > 0 && (p(q.id)?.c ?? 0) < TARGET;
@@ -80,11 +84,11 @@ export function poolFor(scope: Scope, state: State): string[] {
       list = ORDER.filter((q) => subKeyOf(q) === scope.value);
       break;
     case "missed":
-      // the questions whose last try is still a miss (red), most-missed first
-      list = ORDER.filter((q) => p(q.id)?.lw).sort((a, b) => (p(b.id)?.w ?? 0) - (p(a.id)?.w ?? 0));
+      // the questions whose last try is still a miss (red), in the bank's order
+      list = BANK_ORDER.filter((id) => p(id)?.lw).map((id) => byIdMeta.get(id)!);
       break;
     case "bookmarked":
-      list = ORDER.filter((q) => p(q.id)?.bm);
+      list = BANK_ORDER.filter((id) => p(id)?.bm).map((id) => byIdMeta.get(id)!);
       break;
     case "harden":
       list = ORDER.filter((q) => (p(q.id)?.c ?? 0) >= TARGET && !p(q.id)?.h).sort((a, b) => (p(b.id)?.w ?? 0) - (p(a.id)?.w ?? 0));
@@ -96,7 +100,7 @@ export function poolFor(scope: Scope, state: State): string[] {
       // the whole bank: finish what is in progress (latest misses first), then new questions in curriculum order
       list = [...ORDER.filter(inProgress).sort(byRecentMiss), ...ORDER.filter((q) => !inProgress(q))];
   }
-  if (scope.kind !== "all" && scope.kind !== "missed" && scope.kind !== "harden") {
+  if (scope.kind !== "all" && scope.kind !== "missed" && scope.kind !== "bookmarked" && scope.kind !== "harden") {
     // inside a chosen set, finish started questions first
     list = [...list.filter(inProgress), ...list.filter((q) => !inProgress(q))];
   }
