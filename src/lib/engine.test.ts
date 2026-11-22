@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createEngine, gapAfter, nextQuestion, recordAnswer, remainingInSet, setRandom, startWith, TARGET, type Engine, type Hooks } from "./engine";
+import { createEngine, gapAfter, nextQuestion, recordAnswer, remainingInSet, setRandom, startWith, type Engine, type Hooks } from "./engine";
+
+// The app masters a question with one correct first try, but the scheduler supports more;
+// these tests use five so the spacing between repeats gets a real workout.
+const TARGET = 5;
 
 let seed = 42;
 setRandom(() => {

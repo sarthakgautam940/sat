@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { sections, sectionName, fullLabel, subByKey, subKeyOf } from "@/lib/bank";
 import { scopeHref } from "@/lib/scope";
+import { shade } from "@/lib/engine";
 import { breakdown, daily, mostMissed, pct, weakest, type Agg } from "@/lib/stats";
 import { formatDay, formatDuration } from "@/lib/dates";
 import { useStore } from "@/lib/store";
@@ -157,7 +158,7 @@ export function StatsView() {
             <div className="rows">
               {missed.map(({ q, w, n, c }) => (
                 <Link key={q.id} href={scopeHref({ kind: "sub", value: subKeyOf(q), start: q.id })} className="row">
-                  <span className="tile" data-m={Math.min(c, 5)}>
+                  <span className="tile" data-m={shade(c)}>
                     {fullLabel(q)}
                   </span>
                   <span className="grow" style={{ fontSize: 14.5 }}>

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { IconBookmark, IconCheck, IconX } from "./icons";
 import { byId, label, sections, type SectionKey } from "@/lib/bank";
-import { TARGET } from "@/lib/engine";
+import { shade, TARGET } from "@/lib/engine";
 import { scopeHref } from "@/lib/scope";
 import { useHydrated, useStore, type State } from "@/lib/store";
 
@@ -43,7 +43,7 @@ export function BankView() {
         <div>
           <h1 className="title">Question bank</h1>
           <p className="subtitle">
-            {counts.mastered} of 481 mastered, {counts.started} in progress. A tile brightens with each correct answer and turns solid white at 5 of 5. Its corner shows how your last try went.
+            {counts.mastered} of 481 mastered{counts.started ? `, ${counts.started} still to get right` : ""}. A question is mastered once you get it right on the first try, and its tile turns solid white. The corner shows how your last try went.
           </p>
         </div>
         <div className="seg" role="group" aria-label="Section">
@@ -65,7 +65,7 @@ export function BankView() {
             <IconX size={17} /> Missed <span className="tnum muted">{counts.missed}</span>
           </Link>
           {counts.unchecked ? (
-            <Link href={scopeHref({ kind: "harden" })} className="rail-item" title="One more pass over mastered questions; a miss drops it back to 3 of 5">
+            <Link href={scopeHref({ kind: "harden" })} className="rail-item" title="One more pass over mastered questions before the test; a miss takes the mastery away until you get it right again">
               <IconCheck size={17} /> Final check <span className="tnum muted">{counts.unchecked}</span>
             </Link>
           ) : null}
@@ -88,7 +88,7 @@ export function BankView() {
                 key={c.name}
                 href={`#${slug(sec, c.name)}`}
                 className="rail-item rail-topic"
-                title={`${right} of ${ids.length} answered right, ${m} mastered. The bar: ${reps} of ${of} correct answers toward mastering all of them.`}
+                title={`${right} of ${ids.length} answered right, ${m} mastered. The bar shows how much of the topic is mastered.`}
               >
                 <span className="grow">
                   {c.name}
@@ -140,18 +140,15 @@ export function BankView() {
           <div className="legend" style={{ marginTop: 28 }}>
             <span>
               <i style={{ background: "var(--m0)" }} />
-              Not started
-            </span>
-            <span>
-              <i style={{ background: "var(--m2)" }} />
-              In progress
-            </span>
-            <span>
-              <i style={{ background: "var(--m4)" }} />4 of 5
+              Not mastered
             </span>
             <span>
               <i style={{ background: "var(--m5)" }} />
               Mastered
+            </span>
+            <span>
+              <i style={{ background: "var(--good)", borderColor: "var(--good)", borderRadius: 99 }} />
+              Last try right
             </span>
             <span>
               <i style={{ background: "var(--bad)", borderColor: "var(--bad)", borderRadius: 99 }} />
@@ -173,8 +170,8 @@ function QTile({ id, subKey, st, big }: { id: string; subKey: string; st: State;
     <Link
       href={scopeHref({ kind: "sub", value: subKey, start: id })}
       className={big ? "tile big" : "tile"}
-      data-m={m}
-      title={`${name}: ${q.pattern}${p ? `. ${m} of ${TARGET} correct${p.w ? `, missed ${p.w}` : ""}` : ""}`}
+      data-m={shade(m)}
+      title={`${name}: ${q.pattern}${p ? `. ${m >= TARGET ? "Mastered" : "Not mastered yet"}${p.w ? `, missed ${p.w}` : ""}` : ""}`}
     >
       {name}
       {/* how the last try went: a green check or a red X */}

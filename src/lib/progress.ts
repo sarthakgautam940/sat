@@ -13,9 +13,9 @@ export function needFor(state: State, id: string, mode: Mode): number {
 }
 
 /**
- * Save one answer. Learning: a correct answer adds one toward the five. Hardening (the
- * final check on mastered questions): a correct answer passes the check; a wrong one drops
- * the question back to 3 of 5, so it has to be earned again.
+ * Save one answer. Learning: a correct first try masters the question. Hardening (the final
+ * check on mastered questions): a correct answer passes the check; a wrong one takes the
+ * mastery away, so it has to be earned again.
  */
 /** Save a first try. Returns its key, for marking how it turned out. */
 export function recordAttempt(id: string, ok: boolean, ms: number, response: string, mode: Mode): string {
@@ -66,7 +66,7 @@ export function applyAttempt(prev: QS, ok: boolean, mode: string, at: number, ma
       }
     }
   } else if (mode === "harden" && q.c >= TARGET) {
-    q.c = 3;
+    q.c = 0;
     delete q.m;
     delete q.h;
   }

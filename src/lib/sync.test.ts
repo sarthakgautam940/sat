@@ -42,7 +42,9 @@ describe("sync", () => {
     answer(phone, "c", true, 2500);
     const merged = mergeStates(laptop, phone);
     expect(merged.log.map((r) => r[0])).toEqual([1000, 1500, 2000, 2500]);
-    expect(merged.q.a.c).toBe(2);
+    // both answers are kept (mastery itself caps at one clean correct answer)
+    expect(merged.q.a.n).toBe(2);
+    expect(merged.q.a.c).toBe(1);
     expect(merged.q.b.w).toBe(1);
     expect(merged.q.c.c).toBe(1);
     // and the other direction gives the same progress

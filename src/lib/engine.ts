@@ -1,6 +1,7 @@
 // The mastery scheduler.
 //
-// A question is mastered after 5 correct answers. A wrong answer never counts toward the 5.
+// A question is mastered once it is answered right on a first try (TARGET correct answers;
+// the scheduler supports more). A wrong answer never counts.
 // Spacing is enforced on every try, across sessions: a question is never shown again until
 // enough other questions have been answered since its last try (or about an hour has passed,
 // which the caller's wait hook decides):
@@ -15,7 +16,12 @@
 // set (the extra hook) instead of repeating one early. All state is plain data, so a session
 // survives reloads.
 
-export const TARGET = 5;
+export const TARGET = 1;
+
+/** A tile's shade from 0 (not started) to 5 (mastered), whatever TARGET is. */
+export function shade(correct: number): number {
+  return Math.round((Math.min(correct, TARGET) / TARGET) * 5);
+}
 export const WINDOW = 6;
 /** Steps until the next showing after correct answer number k (index = corrects so far). */
 export const GAP_CORRECT = [0, 4, 6, 9, 13, 13];

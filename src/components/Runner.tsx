@@ -9,7 +9,7 @@ import { DesmosPanel } from "./Desmos";
 import { IconArrowLeft, IconArrowRight, IconBookmark, IconBulb, IconCalc, IconCheck, IconEye, IconPause, IconPlay, IconSheet, IconStrike, IconX } from "./icons";
 import { byId, label, subByKey, subKeyOf, teach, type Teach } from "@/lib/bank";
 import { checkGridIn, cleanGridInput } from "@/lib/answer";
-import { createEngine, gapAfter, nextQuestion, recordAnswer, remainingInSet, startWith, TARGET, type Engine, type Hooks } from "@/lib/engine";
+import { createEngine, gapAfter, nextQuestion, recordAnswer, remainingInSet, shade, startWith, TARGET, type Engine, type Hooks } from "@/lib/engine";
 import { loadQuestion, type QData } from "@/lib/data";
 import { needFor, readiness, recordAttempt, setMark, toggleBookmark, type Mode } from "@/lib/progress";
 import { fillersFor, modeOf, poolFor, scopeFromParams, scopeHref } from "@/lib/scope";
@@ -465,7 +465,7 @@ function Session({ scope }: { scope: Scope }) {
             <div className="qcol">
               {meta && sub ? (
                 <div className="qmeta">
-                  <span className="tile" data-m={Math.min(p?.c ?? 0, TARGET)}>
+                  <span className="tile" data-m={shade(p?.c ?? 0)}>
                     {label(meta)}
                   </span>
                   <div className="grow">
@@ -477,7 +477,7 @@ function Session({ scope }: { scope: Scope }) {
                     </div>
                     {mixed ? <div className="muted qcat">Mixed in while the questions in {scope.label} wait their turn</div> : null}
                   </div>
-                  <Pips c={p?.c ?? 0} pop={result?.ok && result.how === "first" && !result.past ? result.after : -1} />
+                  {TARGET > 1 ? <Pips c={p?.c ?? 0} pop={result?.ok && result.how === "first" && !result.past ? result.after : -1} /> : null}
                   <button className="icon-btn" aria-pressed={!!p?.bm} onClick={() => current && toggleBookmark(current)} aria-label={p?.bm ? "Remove bookmark" : "Bookmark"} title="Bookmark">
                     <IconBookmark filled={!!p?.bm} />
                   </button>
@@ -803,6 +803,12 @@ function missNote(pastMiss: PastMiss | null, typed: string[], practice: boolean,
   return `${keep}${tried} Fix it yourself and it turns green and counts as right in your stats; reveal it or move on and it stays a miss.`;
 }
 
+/** Where a question stands toward mastery. */
+function standing(c: number): string {
+  if (c >= TARGET) return "Mastered.";
+  return TARGET === 1 ? "Not mastered yet." : `${c} of ${TARGET} toward mastery.`;
+}
+
 const STUDY = "Marked for study, so it counts as a miss in your stats and shows in your Missed list.";
 
 /** The line in the result box. */
@@ -810,14 +816,14 @@ function resultNote(result: Result, correctText: string, studied: boolean): stri
   const c = Math.min(result.after, TARGET);
   if (result.how === "first") {
     const study = studied ? ` ${STUDY}` : "";
-    if (!result.past) return `${c} of ${TARGET} toward mastery.${study}`;
+    if (!result.past) return `${standing(c)}${study}`;
     const when = `You answered this ${result.past.ago}.`;
-    return c >= TARGET ? `${when} Mastered, ${TARGET} of ${TARGET}.${study}` : `${when} ${c} of ${TARGET} toward mastery.${study} ${countsAgain(result.past)}`;
+    return c >= TARGET ? `${when} Mastered.${study}` : `${when} ${standing(c)}${study} ${countsAgain(result.past)}`;
   }
   if (result.how === "retry") {
     const stats = studied ? STUDY : result.fixed ? "Fixed, so that miss counts as right in your stats." : "The answer was revealed last time, so that miss still counts.";
     if (result.past) return `${stats} ${countsAgain(result.past)}`;
-    return `${stats} Mastery only grows on a clean first try, so it stays at ${c} of ${TARGET} and comes back after ${MISS_GAP} other questions.`;
+    return `${stats} Mastery needs a clean first try, so it comes back after ${MISS_GAP} other questions for one.`;
   }
   if (result.how === "practice") {
     const why =
@@ -829,7 +835,7 @@ function resultNote(result: Result, correctText: string, studied: boolean): stri
     return `${why}${studied ? ` ${STUDY}` : ""}${result.past ? ` ${countsAgain(result.past)}` : ""}`;
   }
   if (result.basis) return `${correctText} This was a practice round, so nothing changes.`;
-  return `${correctText} ${result.past ? countsAgain(result.past) : `This one counts as a miss (${c} of ${TARGET}) and comes back after ${MISS_GAP} other questions.`}`;
+  return `${correctText} ${result.past ? countsAgain(result.past) : `This one counts as a miss and comes back after ${MISS_GAP} other questions.`}`;
 }
 
 function Done({ tally }: { tally: { answered: number; correct: number; mastered: number } }) {

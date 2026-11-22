@@ -8,7 +8,7 @@ import type { Engine } from "./engine";
 
 /** Per-question progress. */
 export type QS = {
-  /** correct answers toward mastery (0..5) */
+  /** correct first tries toward mastery (TARGET of them masters it) */
   c: number;
   /** attempts */
   n: number;

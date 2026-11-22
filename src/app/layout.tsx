@@ -10,7 +10,7 @@ const figtree = Figtree({ subsets: ["latin"], variable: "--font-figtree", displa
 
 export const metadata: Metadata = {
   title: { default: "SAT Bank", template: "%s | SAT Bank" },
-  description: "Every hard SAT question type, mastered five times over.",
+  description: "Every hard SAT question type, mastered.",
   robots: { index: false, follow: false },
 };
 
