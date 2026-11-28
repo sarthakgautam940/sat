@@ -19,9 +19,13 @@ Progress is stored in the browser (localStorage) first, so the app works offline
 
 ### Sync across devices
 
-Settings, Sync across devices: turn it on to get a sync code and a link; open the link (or type the code) on another device and both share the same progress. `api/progress.ts` is a Vercel Function that stores each code's progress as one private file in Vercel Blob, named by a hash of the code. Devices never overwrite each other: answer logs are combined and every question's progress is rebuilt from the combined log (`mergeStates` in `src/lib/sync.ts`); writes are conditional on the version a device last saw, and a device that loses the race merges and tries again. Erasing or importing progress starts a new generation that the other devices adopt. Changes go up at most every 4 minutes while practicing and right away when the tab is hidden, which keeps a month of heavy use inside the free Blob tier.
+Settings, Sync across devices: turn it on to get a sync code and a link; open the link (or type the code) on another device and both share the same progress. `api/progress.ts` is a Vercel Function that stores each code's progress as one record named by a hash of the code. Devices never overwrite each other: answer logs are combined and every question's progress is rebuilt from the combined log (`mergeStates` in `src/lib/sync.ts`); uploads are conditional on the version a device last saw, and a device that loses the race merges and tries again. Erasing progress starts a new generation that the other devices adopt.
 
-One-time setup: in the Vercel project, open Storage, create a Blob store with private access, connect it to the project, and redeploy. Without it the app still works; Settings says sync isn't set up.
+Storage operations are kept low (`src/lib/sync.ts`): progress downloads when the app opens and when coming back to it after a while (only if it changed, via `If-None-Match`); changes upload on a timer while practicing and when leaving the app, without downloading first unless another device wrote in between; what was last synced is remembered, so unsent changes survive closing the app. A 10-question session with frequent tab switching takes 2 operations (it took 31 before this was tuned).
+
+Where it's stored: Upstash Redis if it's connected to the project (`KV_REST_API_URL`/`KV_REST_API_TOKEN` or `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN`; the free tier allows hundreds of thousands of operations a month, so the app syncs almost live), otherwise Vercel Blob (`BLOB_READ_WRITE_TOKEN`; the free tier allows 2,000 writes a month, so the app syncs at most every 15 minutes). With both connected, a code's progress still in Blob is copied to Redis the first time it's read. The server tells the app which one it uses (`x-sync-store`).
+
+One-time setup: in the Vercel project, open Storage and connect Upstash for Redis (or a private Blob store), keeping the default environment variable prefix, then redeploy. Without either, the app still works; Settings says sync isn't set up.
 
 ## How studying works
 

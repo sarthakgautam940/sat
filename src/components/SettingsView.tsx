@@ -159,7 +159,7 @@ function SyncSection() {
       : sync.state === "error"
         ? sync.message
         : sync.at && now
-          ? `Synced ${ago(Math.max(0, now - sync.at))}. Changes go up every few minutes while you practice, and right away when you leave.`
+          ? `Synced ${ago(Math.max(0, now - sync.at))}. Everything saves on this device instantly; it syncs when you open or leave the app and every few minutes while you practice.`
           : "Sync is on.";
   return (
     <section className="section">

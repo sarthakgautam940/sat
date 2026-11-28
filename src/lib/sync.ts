@@ -18,8 +18,12 @@ import { applySyncedState, getState, normalizeState, subscribe, type LogRow, typ
 // progress to the main one through the sync server, then goes there. Updates never touch
 // saved progress.
 //
-// To stay well inside the free storage tier, changes are sent at most every few minutes
-// while you practice, and right away when the tab is hidden or the app is closed.
+// Storage operations are kept to a minimum (the free storage tiers count them): progress is
+// downloaded when the app opens and, after that, only when coming back to it after a while;
+// changes are uploaded at most every few minutes while practicing and when leaving, and an
+// upload doesn't download first unless another device changed something in between. What
+// was last synced is remembered, so unsent changes survive closing the app. The cadence is
+// quicker when the server says it stores progress in Redis, which allows far more.
 
 const CODE_KEY = "sat-sync-code";
 /** The main address (host, with port if any), set at build time; empty in local dev. */
@@ -27,7 +31,17 @@ const CANONICAL = process.env.NEXT_PUBLIC_CANONICAL_HOST || "";
 /** Hosts ending in this are the site's other addresses (every Vercel deployment and alias). */
 const SITE_SUFFIX = process.env.NEXT_PUBLIC_SITE_SUFFIX || ".vercel.app";
 const API = "/api/progress";
-const PUSH_EVERY_MS = 4 * 60 * 1000;
+const META_KEY = "sat-sync-meta";
+/**
+ * push: how long after a change to upload it while practicing. pull: how long after a download
+ * before coming back to the app downloads again. leave: the least time between uploads made
+ * on leaving the app. Blob's free tier allows only 2,000 writes a month, so it's frugal;
+ * Redis allows hundreds of thousands, so it's close to live.
+ */
+const CADENCE = {
+  blob: { push: 15 * 60 * 1000, pull: 15 * 60 * 1000, leave: 5 * 60 * 1000 },
+  redis: { push: 60 * 1000, pull: 0, leave: 0 },
+};
 const ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
 
 // ---------------------------------------------------------------- merging (pure)
@@ -187,30 +201,104 @@ async function readJson(res: Response): Promise<{ error?: string; etag?: string;
   }
 }
 
-/** Pull, merge, and push if anything changed. Retries when another device wrote in between. */
-async function run(code: string, join: boolean) {
+/** A fingerprint of a state's progress, to tell whether anything changed since the last sync. */
+function fingerprint(s: State): string {
+  const m = Object.values(s.marks ?? {});
+  return `${s.gen ?? ""}|${s.at ?? 0}|${s.log.length}|${bookmarkKey(s)}|${m.length}:${Math.max(0, ...m.map((x) => x.at))}`;
+}
+
+/** What this device last synced with the server, for one code: the server's version and the state's fingerprint. */
+type Meta = { code: string; etag: string | null; fp: string };
+
+function readMeta(code: string): Meta | null {
+  try {
+    const m = JSON.parse(window.localStorage.getItem(META_KEY) ?? "null") as Meta | null;
+    return m && m.code === code ? m : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeMeta(m: Meta | null) {
+  try {
+    if (m) window.localStorage.setItem(META_KEY, JSON.stringify(m));
+    else window.localStorage.removeItem(META_KEY);
+  } catch {
+    // storage blocked: sync still works, just less frugally
+  }
+}
+
+/** Whether this device has changes the server hasn't seen. */
+function unsent(code: string): boolean {
+  return readMeta(code)?.fp !== fingerprint(getState());
+}
+
+/** Which store the server uses (it says so on every reply); sets how often to sync. */
+let store: "blob" | "redis" = "blob";
+let lastPull = 0;
+let lastPush = 0;
+
+function noteStore(res: Response) {
+  const s = res.headers.get("x-sync-store");
+  if (s === "redis" || s === "blob") store = s;
+}
+
+/**
+ * Sync with the server. pull: download first (only what changed since the last sync, if
+ * anything). Then upload if this device has changes the server hasn't seen, conditional on
+ * the version last seen; if another device wrote in between, download theirs, merge, and
+ * upload again.
+ */
+async function run(code: string, join: boolean, pull: boolean) {
+  let mustRead = join;
   for (let attempt = 0; attempt < 4; attempt++) {
-    const res = await fetch(API, { headers: { "x-sync-code": code }, cache: "no-store" });
-    const body = await readJson(res);
-    let remote: State | null = null;
-    let etag: string | undefined;
-    if (res.ok && body?.state) {
-      remote = normalizeState(body.state);
-      etag = body.etag;
-    } else if (!(res.status === 404 && body?.error === "none")) {
-      throw new SyncError(explain(res, body));
+    const meta = readMeta(code);
+    let etag = meta?.etag ?? null;
+    const changed = unsent(code);
+    // With changes of its own, this device uploads straight away (the upload is refused if
+    // another device wrote since, and then it reads). Otherwise it reads only what changed.
+    if (mustRead || !meta || (pull && !changed)) {
+      const conditional = !mustRead && !!meta && !!etag && !changed;
+      const res = await fetch(API, { headers: { "x-sync-code": code, ...(conditional && etag ? { "if-none-match": etag } : {}) }, cache: "no-store" });
+      noteStore(res);
+      lastPull = Date.now();
+      if (res.status !== 304) {
+        const body = await readJson(res);
+        if (res.ok && body?.state) {
+          const remote = normalizeState(body.state);
+          const local = getState();
+          const merged = mergeStates(local, remote, join);
+          if (!sameState(merged, local)) apply(merged);
+          etag = body.etag ?? null;
+          // what the server has is now in this device's progress
+          writeMeta({ code, etag, fp: sameState(merged, remote) ? fingerprint(getState()) : fingerprint(remote) });
+        } else if (res.status === 404 && body?.error === "none") {
+          etag = null;
+          writeMeta({ code, etag: null, fp: "" });
+        } else {
+          throw new SyncError(explain(res, body));
+        }
+      }
+      join = false;
+      mustRead = false;
     }
+    if (!unsent(code)) return;
     const local = getState();
-    const merged = remote ? mergeStates(local, remote, join) : local;
-    if (!sameState(merged, local)) apply(merged);
-    if (remote && sameState(merged, remote)) return;
     const put = await fetch(API, {
       method: "PUT",
       headers: { "x-sync-code": code, "content-type": "application/json", ...(etag ? { "if-match": etag } : {}) },
-      body: JSON.stringify(merged),
+      body: JSON.stringify(local),
     });
-    if (put.status === 409) continue; // another device wrote first: merge with theirs and try again
+    noteStore(put);
+    if (put.status === 409) {
+      // another device wrote first: download theirs, merge, and upload again
+      mustRead = true;
+      continue;
+    }
     if (!put.ok) throw new SyncError(explain(put, await readJson(put)));
+    const body = await readJson(put);
+    writeMeta({ code, etag: body?.etag ?? null, fp: fingerprint(local) });
+    lastPush = Date.now();
     return;
   }
   throw new SyncError("Another device kept writing at the same moment. It will try again shortly.");
@@ -219,9 +307,9 @@ async function run(code: string, join: boolean) {
 // ---------------------------------------------------------------- the agent
 
 let applying = false;
-let dirty = false;
 let running: Promise<void> | null = null;
 let again = false;
+let againPull = false;
 let timer: ReturnType<typeof setTimeout> | null = null;
 let started = false;
 
@@ -234,12 +322,16 @@ function apply(next: State) {
   }
 }
 
-/** Sync now. Safe to call any time; overlapping calls are folded into one more pass. */
-export function syncNow(join = false): Promise<void> {
+/**
+ * Sync now. pull (the default) downloads first; pull false only uploads unsent changes.
+ * Safe to call any time; overlapping calls are folded into one more pass.
+ */
+export function syncNow(join = false, pull = true): Promise<void> {
   const code = status.code;
   if (!code) return Promise.resolve();
   if (running) {
     again = true;
+    againPull = againPull || pull;
     return running;
   }
   if (timer) {
@@ -247,30 +339,35 @@ export function syncNow(join = false): Promise<void> {
     timer = null;
   }
   setStatus({ state: "syncing" });
-  const wasDirty = dirty;
-  dirty = false;
-  running = run(code, join)
+  running = run(code, join, pull)
     .then(() => setStatus({ state: "synced", at: Date.now(), message: "" }))
     .catch((e: unknown) => {
-      dirty = dirty || wasDirty;
       setStatus({ state: "error", message: e instanceof SyncError ? e.message : "Couldn't reach the sync server. Progress is still saved on this device, and it will sync when you're back online." });
     })
     .finally(() => {
       running = null;
       if (again) {
+        const p = againPull;
         again = false;
-        void syncNow();
-      } else if (dirty) schedule();
+        againPull = false;
+        void syncNow(false, p);
+      } else if (status.code && unsent(status.code)) schedule();
     });
   return running;
 }
 
-function schedule() {
-  if (timer || !status.code) return;
+/** Upload unsent changes a little later (changes made meanwhile go in the same upload). */
+function schedule(delay = CADENCE[store].push) {
+  if (!status.code) return;
+  if (timer) {
+    // an upload is already coming; bring it forward if this one is sooner
+    if (delay >= CADENCE[store].push) return;
+    clearTimeout(timer);
+  }
   timer = setTimeout(() => {
     timer = null;
-    void syncNow();
-  }, PUSH_EVERY_MS);
+    void syncNow(false, false);
+  }, Math.max(0, delay));
 }
 
 /** Turn sync on with a new code; this device's progress becomes the shared copy. */
@@ -296,9 +393,9 @@ export function joinSync(input: string): Promise<void> {
 /** Stop syncing on this device. Progress stays here, and on the server for other devices. */
 export function stopSync() {
   writeCode(null);
+  writeMeta(null);
   if (timer) clearTimeout(timer);
   timer = null;
-  dirty = false;
   setStatus({ ...OFF });
 }
 
@@ -383,18 +480,28 @@ function begin() {
       void syncNow();
     }
   }
+  // a change here: upload it a little later, together with whatever else changes meanwhile
   subscribe(() => {
     if (applying || !status.code) return;
-    dirty = true;
     schedule();
   });
   document.addEventListener("visibilitychange", () => {
     if (!status.code) return;
-    // coming back: pick up what other devices did; leaving: send what this one did
-    if (document.visibilityState === "visible" || dirty) void syncNow();
+    if (document.visibilityState === "hidden") {
+      // leaving: send what this device did, so another device picks it up
+      if (unsent(status.code)) {
+        const wait = lastPush + CADENCE[store].leave - Date.now();
+        // uploaded only moments ago: send these as soon as the gap is up instead
+        if (wait <= 0) void syncNow(false, false);
+        else schedule(wait);
+      }
+    } else if (Date.now() - lastPull >= CADENCE[store].pull) {
+      // back after a while: pick up what other devices did
+      void syncNow();
+    }
   });
   window.addEventListener("pagehide", () => {
-    if (status.code && dirty) void syncNow();
+    if (status.code && unsent(status.code)) void syncNow(false, false);
   });
   window.addEventListener("online", () => {
     if (status.code) void syncNow();
