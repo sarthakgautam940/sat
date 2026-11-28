@@ -39,6 +39,14 @@ interface Store {
   write(path: string, text: string, ifMatch?: string): Promise<string | "conflict">;
 }
 
+/**
+ * Compressed reads (Blob's) turn a version tag weak, which turns the version tag weak (W/"abc"), while writes
+ * only match the strong form ("abc"). Same version, so compare and hand out the strong form.
+ */
+function strong(etag: string): string {
+  return etag.replace(/^W\//, "");
+}
+
 // ---------------------------------------------------------------- Upstash Redis (REST)
 
 /** Vercel's Upstash integration sets KV_REST_API_*; a direct Upstash setup sets UPSTASH_REDIS_REST_*. */
@@ -70,12 +78,12 @@ function redisStore(cfg: { url: string; token: string }): Store {
     async read(path, ifNoneMatch) {
       const [v, d] = ((await call(["HMGET", key(path), "v", "d"])) as (string | null)[]) ?? [];
       if (!v || d == null) return null;
-      if (ifNoneMatch && ifNoneMatch === v) return "unchanged";
+      if (ifNoneMatch && strong(ifNoneMatch) === v) return "unchanged";
       return { etag: v, text: d };
     },
     async write(path, text, ifMatch) {
       const etag = `"${randomUUID()}"`;
-      const ok = await call(["EVAL", CAS, 1, key(path), ifMatch ?? "", etag, text]);
+      const ok = await call(["EVAL", CAS, 1, key(path), ifMatch ? strong(ifMatch) : "", etag, text]);
       return ok === 1 ? etag : "conflict";
     },
   };
@@ -91,7 +99,7 @@ const blobStore: Store = {
   async read(path, ifNoneMatch) {
     let blob;
     try {
-      blob = await get(path, { access: "private", useCache: false, ...(ifNoneMatch ? { ifNoneMatch } : {}) });
+      blob = await get(path, { access: "private", useCache: false, ...(ifNoneMatch ? { ifNoneMatch: strong(ifNoneMatch) } : {}) });
     } catch (e) {
       if (e instanceof BlobNotFoundError) return null;
       throw e;
@@ -99,7 +107,7 @@ const blobStore: Store = {
     if (!blob) return null;
     if (blob.statusCode === 304) return "unchanged";
     if (blob.statusCode !== 200 || !blob.stream) return null;
-    return { etag: blob.blob.etag, text: await new Response(blob.stream).text() };
+    return { etag: strong(blob.blob.etag), text: await new Response(blob.stream).text() };
   },
   async write(path, text, ifMatch) {
     try {
@@ -108,9 +116,9 @@ const blobStore: Store = {
         addRandomSuffix: false,
         allowOverwrite: true,
         contentType: "application/json",
-        ...(ifMatch ? { ifMatch } : {}),
+        ...(ifMatch ? { ifMatch: strong(ifMatch) } : {}),
       });
-      return saved.etag;
+      return strong(saved.etag);
     } catch (e) {
       if (e instanceof BlobPreconditionFailedError) return "conflict";
       throw e;

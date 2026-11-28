@@ -251,7 +251,8 @@ function noteStore(res: Response) {
  */
 async function run(code: string, join: boolean, pull: boolean) {
   let mustRead = join;
-  for (let attempt = 0; attempt < 4; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let justRead = false;
     const meta = readMeta(code);
     let etag = meta?.etag ?? null;
     const changed = unsent(code);
@@ -262,6 +263,7 @@ async function run(code: string, join: boolean, pull: boolean) {
       const res = await fetch(API, { headers: { "x-sync-code": code, ...(conditional && etag ? { "if-none-match": etag } : {}) }, cache: "no-store" });
       noteStore(res);
       lastPull = Date.now();
+      justRead = true;
       if (res.status !== 304) {
         const body = await readJson(res);
         if (res.ok && body?.state) {
@@ -291,6 +293,9 @@ async function run(code: string, join: boolean, pull: boolean) {
     });
     noteStore(put);
     if (put.status === 409) {
+      // Refused even though this device had just downloaded the latest: that's not another
+      // device racing, so stop instead of retrying (each try is a storage operation).
+      if (justRead) throw new ConflictError();
       // another device wrote first: download theirs, merge, and upload again
       mustRead = true;
       continue;
@@ -301,8 +306,19 @@ async function run(code: string, join: boolean, pull: boolean) {
     lastPush = Date.now();
     return;
   }
-  throw new SyncError("Another device kept writing at the same moment. It will try again shortly.");
+  throw new ConflictError();
 }
+
+/** Uploads kept being refused: wait a while before trying again on its own. */
+class ConflictError extends SyncError {
+  constructor() {
+    super("Sync couldn't upload just now. Progress is safe on this device; it will try again in a while, or press Sync now.");
+  }
+}
+
+/** After repeated refusals, automatic syncing pauses until this time (Sync now still works). */
+let backoffUntil = 0;
+const BACKOFF_MS = 30 * 60 * 1000;
 
 // ---------------------------------------------------------------- the agent
 
@@ -340,8 +356,12 @@ export function syncNow(join = false, pull = true): Promise<void> {
   }
   setStatus({ state: "syncing" });
   running = run(code, join, pull)
-    .then(() => setStatus({ state: "synced", at: Date.now(), message: "" }))
+    .then(() => {
+      backoffUntil = 0;
+      setStatus({ state: "synced", at: Date.now(), message: "" });
+    })
     .catch((e: unknown) => {
+      if (e instanceof ConflictError) backoffUntil = Date.now() + BACKOFF_MS;
       setStatus({ state: "error", message: e instanceof SyncError ? e.message : "Couldn't reach the sync server. Progress is still saved on this device, and it will sync when you're back online." });
     })
     .finally(() => {
@@ -351,7 +371,7 @@ export function syncNow(join = false, pull = true): Promise<void> {
         again = false;
         againPull = false;
         void syncNow(false, p);
-      } else if (status.code && unsent(status.code)) schedule();
+      } else if (status.code && unsent(status.code)) schedule(Math.max(CADENCE[store].push, backoffUntil - Date.now()));
     });
   return running;
 }
@@ -366,7 +386,8 @@ function schedule(delay = CADENCE[store].push) {
   }
   timer = setTimeout(() => {
     timer = null;
-    void syncNow(false, false);
+    if (Date.now() < backoffUntil) schedule(backoffUntil - Date.now());
+    else void syncNow(false, false);
   }, Math.max(0, delay));
 }
 
@@ -486,7 +507,7 @@ function begin() {
     schedule();
   });
   document.addEventListener("visibilitychange", () => {
-    if (!status.code) return;
+    if (!status.code || Date.now() < backoffUntil) return;
     if (document.visibilityState === "hidden") {
       // leaving: send what this device did, so another device picks it up
       if (unsent(status.code)) {
@@ -501,7 +522,7 @@ function begin() {
     }
   });
   window.addEventListener("pagehide", () => {
-    if (status.code && unsent(status.code)) void syncNow(false, false);
+    if (status.code && Date.now() >= backoffUntil && unsent(status.code)) void syncNow(false, false);
   });
   window.addEventListener("online", () => {
     if (status.code) void syncNow();

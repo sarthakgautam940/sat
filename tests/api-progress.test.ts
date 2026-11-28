@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // An in-memory stand-in for Vercel Blob with the same conditional read and write behavior.
+// Like the real one, reads hand back the version tag in its weak form (W/"..."), because the
+// response is compressed, while writes only match the strong form.
 const blobs = new Map<string, { text: string; etag: string }>();
 let version = 0;
 const blobCalls = { get: 0, put: 0 };
@@ -17,8 +19,8 @@ vi.mock("@vercel/blob", () => {
       blobCalls.get++;
       const f = blobs.get(path);
       if (!f) return null;
-      if (opts.ifNoneMatch && opts.ifNoneMatch === f.etag) return { statusCode: 304, stream: null, blob: { etag: f.etag } };
-      return { statusCode: 200, stream: new Blob([f.text]).stream(), blob: { etag: f.etag } };
+      if (opts.ifNoneMatch && opts.ifNoneMatch === f.etag) return { statusCode: 304, stream: null, blob: { etag: `W/${f.etag}` } };
+      return { statusCode: 200, stream: new Blob([f.text]).stream(), blob: { etag: `W/${f.etag}` } };
     },
     put: async (path: string, text: string, opts: { ifMatch?: string }) => {
       blobCalls.put++;
@@ -33,14 +35,12 @@ vi.mock("@vercel/blob", () => {
 
 // An in-memory stand-in for Upstash Redis's REST API: HMGET and the compare-and-set script.
 const redis = new Map<string, Record<string, string>>();
-let redisCalls = 0;
 const realFetch = globalThis.fetch;
 function useRedis() {
   process.env.KV_REST_API_URL = "https://redis.test";
   process.env.KV_REST_API_TOKEN = "t";
   globalThis.fetch = (async (url: string, init: RequestInit) => {
     expect(url).toBe("https://redis.test");
-    redisCalls++;
     const cmd = JSON.parse(String(init.body)) as (string | number)[];
     const reply = (result: unknown) => new Response(JSON.stringify({ result }), { headers: { "content-type": "application/json" } });
     if (cmd[0] === "HMGET") {
@@ -68,7 +68,6 @@ const req = (method: string, body?: string, headers: Record<string, string> = {}
 beforeEach(() => {
   blobs.clear();
   redis.clear();
-  redisCalls = 0;
   blobCalls.get = blobCalls.put = 0;
   process.env.BLOB_READ_WRITE_TOKEN = "blob";
   delete process.env.KV_REST_API_URL;
@@ -104,6 +103,17 @@ for (const backend of ["blob", "redis"] as const) {
       await handle(req("PUT", state(2), { "if-match": etag }));
       const changed = await handle(req("GET", undefined, { "if-none-match": etag }));
       expect(changed.status).toBe(200);
+    });
+
+    it("a version from a read always works for the next write (a weak tag from a compressed read included)", async () => {
+      await handle(req("PUT", state(1)));
+      const read = await (await handle(req("GET"))).json();
+      expect(read.etag.startsWith("W/")).toBe(false);
+      expect((await handle(req("PUT", state(2), { "if-match": read.etag }))).status).toBe(200);
+      // a device still holding a weak tag from before the fix
+      const again = await (await handle(req("GET"))).json();
+      expect((await handle(req("PUT", state(3), { "if-match": `W/${again.etag}` }))).status).toBe(200);
+      expect((await handle(req("GET", undefined, { "if-none-match": `W/${(await (await handle(req("GET"))).json()).etag}` }))).status).toBe(304);
     });
 
     it("refuses a write based on an old version, so devices never overwrite each other", async () => {
